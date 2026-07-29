@@ -1,0 +1,19 @@
+name: bong-bong
+
+services:
+  koharu:
+    image: ghcr.io/mayocream/koharu:0.61.2@sha256:3293b67323c7fcd0d88a5b7ee27493a0fa03d9a47291642af85618f6543f1f88
+    platform: linux/amd64
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:4000:4000"
+    volumes:
+      - koharu-data:/home/koharu/.local/share/Koharu
+      - koharu-secrets:/home/koharu/.koharu
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  koharu-data:
+  koharu-secrets:

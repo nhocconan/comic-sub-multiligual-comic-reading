@@ -1,0 +1,25 @@
+name: bong-bong-edge
+
+services:
+  caddy:
+    image: caddy:2.10.0-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      BONG_BONG_DOMAIN: ${BONG_BONG_DOMAIN:?Set BONG_BONG_DOMAIN}
+      BONG_BONG_AUTH_KEY: ${BONG_BONG_AUTH_KEY:?Set BONG_BONG_AUTH_KEY}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  caddy-data:
+  caddy-config:

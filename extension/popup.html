@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Comic Sub</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">Comic Sub</p>
+          <h1>Dịch trên trang đang đọc</h1>
+        </div>
+        <span class="health-dot" id="health-dot" data-tone="idle" aria-hidden="true"></span>
+      </header>
+
+      <section class="status-strip" aria-labelledby="companion-heading">
+        <div>
+          <h2 id="companion-heading">Koharu</h2>
+          <p id="health-state" class="status-copy" aria-live="polite">Đang kiểm tra…</p>
+        </div>
+        <button class="text-button" id="refresh-button" type="button">Kiểm tra</button>
+      </section>
+
+      <section class="activation" aria-labelledby="page-heading">
+        <div class="section-heading">
+          <div>
+            <h2 id="page-heading">Trang hiện tại</h2>
+            <p id="page-status" class="status-copy" aria-live="polite">
+              Chưa quét ảnh comic.
+            </p>
+          </div>
+          <p class="metric" id="candidate-count" aria-label="Số ảnh comic phù hợp">—</p>
+        </div>
+
+        <button class="button button-primary button-wide" id="scan-button" type="button">
+          Dịch trang này
+        </button>
+        <p class="permission-status" id="permission-status" aria-live="polite" hidden></p>
+
+        <div class="permission-panel" id="permission-panel" hidden>
+          <div>
+            <p class="permission-title" id="permission-title">Cần quyền đọc ảnh</p>
+            <p class="hint" id="permission-detail">
+              Chỉ xin quyền với nơi đang chứa ảnh comic trên trang này.
+            </p>
+          </div>
+          <button class="button button-secondary" id="permission-button" type="button">
+            Cho phép nguồn ảnh
+          </button>
+        </div>
+      </section>
+
+      <section class="progress" id="progress-section" aria-labelledby="progress-heading" hidden>
+        <div class="section-heading compact">
+          <div>
+            <h2 id="progress-heading">Tiến độ</h2>
+            <p id="progress-status" class="status-copy" aria-live="polite">Sẵn sàng.</p>
+          </div>
+          <p class="metric metric-small" id="progress-count">0 / 0</p>
+        </div>
+        <div class="progress-track" aria-hidden="true">
+          <span id="progress-bar"></span>
+        </div>
+        <p class="failure-copy" id="failure-count" hidden></p>
+      </section>
+
+      <section class="controls" aria-labelledby="controls-heading">
+        <h2 id="controls-heading">Điều khiển</h2>
+        <div class="primary-actions">
+          <button class="button button-primary" id="translate-visible-button" type="button" disabled>
+            Dịch ảnh đang thấy
+          </button>
+          <button class="button button-secondary" id="translate-all-button" type="button" disabled>
+            Dịch tất cả
+          </button>
+        </div>
+        <div class="utility-actions">
+          <button class="text-button control-toggle" id="pause-button" type="button" disabled aria-pressed="false">
+            Tạm dừng
+          </button>
+          <button class="text-button control-toggle" id="reveal-button" type="button" disabled aria-pressed="false">
+            Hiện ảnh gốc
+          </button>
+          <button class="text-button" id="retry-button" type="button" disabled>
+            Thử lại lỗi
+          </button>
+        </div>
+      </section>
+
+      <details class="settings" id="settings">
+        <summary>
+          <span>Cài đặt dịch</span>
+          <span class="summary-state" id="save-state" aria-live="polite">Tự lưu</span>
+        </summary>
+
+        <div class="settings-body">
+          <label class="field">
+            <span>Ngôn ngữ đích</span>
+            <select id="target-language">
+              <option value="vi-VN">Tiếng Việt</option>
+              <option value="en-US">English</option>
+              <option value="ja-JP">日本語</option>
+              <option value="ko-KR">한국어</option>
+              <option value="th-TH">ไทย</option>
+              <option value="id-ID">Bahasa Indonesia</option>
+            </select>
+          </label>
+
+          <div class="field-pair">
+            <label class="field">
+              <span>Nhà cung cấp</span>
+              <select id="provider">
+                <option value="gemini">Google Gemini · có free tier</option>
+                <option value="deepseek">DeepSeek · giá thấp</option>
+                <option value="openai">OpenAI</option>
+                <option value="claude">Anthropic Claude</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Model</span>
+              <select id="model"></select>
+            </label>
+          </div>
+
+          <label class="field" id="custom-model-field" hidden>
+            <span>ID model trong Koharu</span>
+            <input id="custom-model" type="text" autocomplete="off" spellcheck="false" placeholder="provider/model">
+          </label>
+          <p class="hint model-note" id="model-note">
+            Khởi điểm đề xuất, chưa phải kết quả benchmark.
+          </p>
+
+          <div class="field-pair">
+            <label class="field">
+              <span>Pipeline</span>
+              <select id="pipeline">
+                <option value="quality">Chất lượng</option>
+                <option value="balanced">Cân bằng</option>
+                <option value="fast">Nhanh</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Đọc trước</span>
+              <select id="look-ahead">
+                <option value="0">0 ảnh</option>
+                <option value="1">1 ảnh</option>
+                <option value="2">2 ảnh</option>
+                <option value="3">3 ảnh</option>
+                <option value="4">4 ảnh</option>
+              </select>
+            </label>
+          </div>
+
+          <label class="switch-row">
+            <span>
+              <strong>Tự dịch khi cuộn</strong>
+              <small>Chỉ xử lý ảnh phù hợp trong hàng đợi.</small>
+            </span>
+            <input id="auto-translate" type="checkbox" checked>
+          </label>
+
+          <label class="field">
+            <span>Thuật ngữ</span>
+            <textarea
+              id="glossary"
+              rows="3"
+              maxlength="8000"
+              placeholder="妖神记 = Yêu Thần Ký&#10;聂离 = Nhiếp Ly"
+            ></textarea>
+          </label>
+          <p class="hint">Mỗi dòng một cặp “nguyên tác = bản dịch”.</p>
+
+          <label class="field">
+            <span>Địa chỉ Koharu</span>
+            <input
+              id="endpoint"
+              type="url"
+              inputmode="url"
+              autocomplete="off"
+              spellcheck="false"
+              value="http://127.0.0.1:4000/api/v1"
+              aria-describedby="endpoint-help endpoint-error"
+            >
+          </label>
+          <p class="hint" id="endpoint-help">Local dùng HTTP; server từ xa bắt buộc HTTPS.</p>
+          <p class="field-error" id="endpoint-error" role="alert" hidden></p>
+
+          <label class="field">
+            <span>Auth key <small>(không bắt buộc)</small></span>
+            <input
+              id="auth-key"
+              type="password"
+              autocomplete="new-password"
+              spellcheck="false"
+              maxlength="4096"
+              placeholder="Bearer token của reverse proxy"
+            >
+          </label>
+          <p class="hint">Gửi bằng header <code>Authorization: Bearer …</code>; không truyền vào website.</p>
+        </div>
+      </details>
+
+      <footer>
+        <p>Provider key vẫn chỉ cấu hình trong Koharu.</p>
+        <button class="text-button quiet-danger" id="clear-cache-button" type="button">
+          Xoá cache
+        </button>
+      </footer>
+
+      <p class="toast" id="toast" role="status" aria-live="polite" hidden></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

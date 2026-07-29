@@ -1,0 +1,120 @@
+* {
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    cursor: default;
+}
+
+:root {
+    color-scheme: light;
+    --ink: #17150f;
+    --muted: #686155;
+    --paper: #fbfaf5;
+    --card: rgba(255, 255, 255, 0.82);
+    --accent: #f2c84b;
+}
+
+html {
+    min-height: 100%;
+    background:
+        radial-gradient(circle at 15% 0%, rgba(242, 200, 75, 0.34), transparent 34%),
+        linear-gradient(160deg, #fffdf6 0%, #f1ede2 100%);
+}
+
+body {
+    margin: 0;
+    min-height: 100%;
+    color: var(--ink);
+    font: 17px/1.45 -apple-system, BlinkMacSystemFont, sans-serif;
+    text-align: left;
+    overflow-y: auto;
+}
+
+main {
+    width: min(620px, calc(100% - 40px));
+    margin: 0 auto;
+    padding: max(34px, env(safe-area-inset-top)) 0 max(34px, env(safe-area-inset-bottom));
+}
+
+.app-icon {
+    display: block;
+    margin: 0 auto 14px;
+    border-radius: 25%;
+    box-shadow: 0 14px 30px rgba(45, 36, 11, 0.16);
+}
+
+.eyebrow {
+    margin: 0;
+    color: #8b6f13;
+    font-size: 12px;
+    font-weight: 800;
+    letter-spacing: 0.14em;
+    text-align: center;
+}
+
+h1 {
+    margin: 2px 0 2px;
+    font-size: clamp(34px, 8vw, 48px);
+    line-height: 1.05;
+    letter-spacing: -0.04em;
+    text-align: center;
+}
+
+.lead {
+    margin: 0 auto 28px;
+    color: var(--muted);
+    text-align: center;
+}
+
+section {
+    margin: 14px 0;
+    padding: 18px 20px;
+    background: var(--card);
+    border-radius: 18px;
+    box-shadow: 0 8px 24px rgba(43, 36, 18, 0.07);
+    backdrop-filter: blur(12px);
+}
+
+h2 {
+    margin: 0 0 8px;
+    font-size: 19px;
+    letter-spacing: -0.02em;
+}
+
+ol,
+section p {
+    margin: 0;
+    padding-left: 22px;
+}
+
+section p {
+    padding-left: 0;
+    color: var(--muted);
+}
+
+li + li {
+    margin-top: 7px;
+}
+
+.open-safari {
+    display: block;
+    margin: 20px 0 12px;
+    padding: 14px 18px;
+    color: #211b09;
+    background: var(--accent);
+    border-radius: 14px;
+    font-weight: 750;
+    text-align: center;
+    text-decoration: none;
+}
+
+.open-safari:active {
+    transform: scale(0.99);
+    background: #e6b92e;
+}
+
+.note {
+    margin: 0 8px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+}

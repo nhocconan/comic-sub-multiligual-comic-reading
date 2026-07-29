@@ -1,0 +1,13 @@
+node_modules/
+test-results/
+.env
+deploy/remote/.env
+.runtime/
+playwright-report/
+.DS_Store
+build/
+.gstack/
+*.xcarchive/
+*.ipa
+**/xcuserdata/
+**/*.xcuserstate
