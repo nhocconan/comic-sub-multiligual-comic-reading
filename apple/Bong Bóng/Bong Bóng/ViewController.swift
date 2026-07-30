@@ -707,7 +707,7 @@ private final class OnDeviceComicOCR {
     ) -> [BrokerRegion] {
         let cleaned = regions.compactMap { region -> BrokerRegion? in
             let text = sanitized(region.source, sourceLanguage: sourceLanguage)
-            guard !text.isEmpty else { return nil }
+            guard !text.isEmpty, !isSiteWatermark(text) else { return nil }
             return BrokerRegion(
                 id: region.id,
                 x: region.x,
@@ -755,6 +755,13 @@ private final class OnDeviceComicOCR {
             )
         }
         return merged
+    }
+
+    private func isSiteWatermark(_ text: String) -> Bool {
+        [
+            "包子漫画", "包子漫畫", "本漫画", "本漫畫", "免费漫画", "免費漫畫",
+            "更多免费", "更多免費", "请访问", "請訪問", "收集整理", "搜集整理",
+        ].contains { text.contains($0) }
     }
 
     private func isCJK(_ language: String) -> Bool {
@@ -1101,7 +1108,7 @@ private enum ReaderBridge {
         return layout(id);
       };
       const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
-      const place = (node, region, page, rect, expandForTranslation = false) => {
+      const geometryFor = (region, page, rect, expandForTranslation = false) => {
         const base = {
           x: region.x / page.width * rect.width,
           y: region.y / page.height * rect.height,
@@ -1117,13 +1124,47 @@ private enum ReaderBridge {
         const height = Math.min(rect.height, base.height * heightFactor);
         const centerX = base.x + base.width / 2;
         const centerY = base.y + base.height / 2;
+        return {
+          x: clamp(centerX - width / 2, 0, rect.width - width),
+          y: clamp(centerY - height / 2, 0, rect.height - height),
+          width, height, rotation: region.rotation || 0
+        };
+      };
+      const separateOverlaps = boxes => {
+        for (let pass = 0; pass < 3; pass += 1) {
+          for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
+            const a = boxes[i], b = boxes[j];
+            const overlapX = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
+            const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
+            if (overlapX <= 2 || overlapY <= 2) continue;
+            const centerAX = a.x + a.width / 2, centerBX = b.x + b.width / 2;
+            const centerAY = a.y + a.height / 2, centerBY = b.y + b.height / 2;
+            const horizontal = overlapX / Math.max(1, Math.min(a.width, b.width)) <
+              overlapY / Math.max(1, Math.min(a.height, b.height));
+            if (horizontal) {
+              const split = (centerAX + centerBX) / 2;
+              const left = centerAX <= centerBX ? a : b, right = centerAX <= centerBX ? b : a;
+              left.width = Math.max(8, split - 2 - left.x);
+              const rightEdge = right.x + right.width;
+              right.x = Math.min(rightEdge - 8, split + 2);
+              right.width = Math.max(8, rightEdge - right.x);
+            } else {
+              const split = (centerAY + centerBY) / 2;
+              const upper = centerAY <= centerBY ? a : b, lower = centerAY <= centerBY ? b : a;
+              upper.height = Math.max(8, split - 2 - upper.y);
+              const lowerEdge = lower.y + lower.height;
+              lower.y = Math.min(lowerEdge - 8, split + 2);
+              lower.height = Math.max(8, lowerEdge - lower.y);
+            }
+          }
+        }
+        return boxes;
+      };
+      const place = (node, box) => {
         Object.assign(node.style, {
-          position: 'absolute',
-          left: `${clamp(centerX - width / 2, 0, rect.width - width)}px`,
-          top: `${clamp(centerY - height / 2, 0, rect.height - height)}px`,
-          width: `${width}px`,
-          height: `${height}px`,
-          transform: `rotate(${region.rotation || 0}deg)`
+          position: 'absolute', left: `${box.x}px`, top: `${box.y}px`,
+          width: `${box.width}px`, height: `${box.height}px`,
+          transform: `rotate(${box.rotation}deg)`
         });
       };
       const fitText = node => {
@@ -1141,7 +1182,8 @@ private enum ReaderBridge {
       const applyRegions = (id, regions, page, semanticOnly) => {
         const target = targetFor(id); if (!target) return false;
         if (!semanticOnly) target.layer.replaceChildren();
-        regions.forEach(region => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, region, page, target.rect, !semanticOnly); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:2px;background:rgba(255,253,245,.96);color:#17130e;border-radius:4px;text-align:center;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.08;overflow:hidden;word-break:break-word;'; target.layer.append(node); if (!semanticOnly) fitText(node); }); return true;
+        const boxes = separateOverlaps(regions.map(region => geometryFor(region, page, target.rect, !semanticOnly)));
+        regions.forEach((region, index) => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, boxes[index]); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:2px;background:rgba(255,253,245,.96);color:#17130e;border-radius:4px;text-align:center;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.08;overflow:hidden;word-break:break-word;'; target.layer.append(node); if (!semanticOnly) fitText(node); }); return true;
       };
       const relayout = () => layers.forEach((_, id) => layout(id));
       window.__comicSubReaderBridge = { scan, scrollToCandidate: id => { const image = imageFor(id); if (image) image.scrollIntoView({ block: 'start', behavior: 'auto' }); return !!image; }, applyRendered, applyRegions, relayout, clear: id => { layers.get(id)?.remove(); layers.delete(id); } };
@@ -1706,7 +1748,9 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                 ))
             }
             for (translationIndex, location) in pendingLocations.enumerated() {
-                preparedPages[location.pageIndex].recognized.regions[location.regionIndex].translation = translated[translationIndex]
+                let source = preparedPages[location.pageIndex].recognized.regions[location.regionIndex].source
+                preparedPages[location.pageIndex].recognized.regions[location.regionIndex].translation =
+                    resolvedLocalTranslation(source: source, translated: translated[translationIndex])
             }
         }
 
@@ -1765,6 +1809,39 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         case .privateServer, .managedCloud:
             guard BrokerEndpointPolicy.allows(brokerEndpoint, discovered: discoveredBroker) else { throw BrokerError.invalidEndpoint }
             return false
+        }
+    }
+
+    private func resolvedLocalTranslation(source: String, translated: String) -> String {
+        guard containsCJK(translated) else { return translated }
+        let sounds: [Character: String] = [
+            "啊": "A", "呀": "A", "哦": "Ồ", "噢": "Ồ", "嗯": "Ừm",
+            "哼": "Hừ", "哈": "Ha", "呵": "Hừm", "嘿": "Này", "喂": "Này",
+            "呜": "Hu", "咦": "Ủa", "唉": "Haiz", "嘻": "Hì", "咳": "Khụ",
+            "啧": "Chậc", "切": "Xì",
+        ]
+        let punctuation = CharacterSet(charactersIn: "，。！？：；、“”‘’…—（）,.!?")
+        var pieces: [String] = []
+        for character in source {
+            if let sound = sounds[character] {
+                pieces.append(sound)
+            } else if character.unicodeScalars.allSatisfy({ punctuation.contains($0) }) {
+                pieces.append(String(character))
+            } else {
+                return translated
+            }
+        }
+        return pieces.joined(separator: " ")
+            .replacingOccurrences(of: " !", with: "!")
+            .replacingOccurrences(of: " ?", with: "?")
+            .replacingOccurrences(of: " …", with: "…")
+    }
+
+    private func containsCJK(_ text: String) -> Bool {
+        text.unicodeScalars.contains {
+            (0x3040...0x30FF).contains($0.value) ||
+            (0x3400...0x9FFF).contains($0.value) ||
+            (0xAC00...0xD7AF).contains($0.value)
         }
     }
 

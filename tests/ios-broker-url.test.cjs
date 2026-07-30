@@ -96,6 +96,10 @@ test('CJK on-device OCR refines suspicious fast results and rejects Latin garbag
   assert.match(source, /const lengthRatio = targetLength \/ sourceLength/)
   assert.match(source, /Math\.min\(2, 1 \+ Math\.max\(0, lengthRatio - 1\) \* \.25\)/)
   assert.match(source, /while \(size > 9/)
+  assert.match(source, /const separateOverlaps = boxes =>/)
+  assert.match(source, /const boxes = separateOverlaps\(regions\.map/)
+  assert.match(source, /!isSiteWatermark\(text\)/)
+  assert.match(source, /"包子漫画", "包子漫畫"/)
 })
 
 test('iOS 26 translates every local page in one direct batch without a modal', () => {
@@ -107,6 +111,8 @@ test('iOS 26 translates every local page in one direct batch without a modal', (
     /private func translateFullyOnDevice[\s\S]*?private func routeContract/,
   )?.[0] ?? ''
   assert.equal((localPipeline.match(/translateOnDevice\(pendingTexts\)/g) ?? []).length, 1)
+  assert.match(source, /resolvedLocalTranslation\(source: source, translated:/)
+  assert.match(source, /"啊": "A"/)
 })
 
 test('Safe Automatic prefers an installed Apple language pack before broker credentials', () => {
