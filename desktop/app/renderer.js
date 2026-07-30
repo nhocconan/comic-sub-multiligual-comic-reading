@@ -6,8 +6,9 @@ let state
 let activeTab = 'reader'
 let latestReceipt = null
 let toastTimer
+let pendingTranslationCommand = null
 
-const routeNames = { ask: 'Chưa chọn route', local: 'Trên máy này', paired: 'Máy tính của tôi', managed: 'Comic Sub cloud', byo: 'Máy tính + external AI' }
+const routeNames = { ask: 'Chưa chọn route', local: 'Trên máy này', paired: 'Máy tính của tôi', managed: 'Manga Sub Cloud', byo: 'Máy tính + external AI' }
 const languages = { 'vi-VN': 'Vietnamese', 'en-US': 'English', 'fr-FR': 'French' }
 const escapeHtml = (value) => String(value || '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char])
 
@@ -69,7 +70,12 @@ async function saveSettings(patch) {
 }
 
 function ensureRoute(command) {
-  if (routeNeedsChoice()) { $('#route-chooser').hidden = false; $('#route-chooser').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return }
+  if (routeNeedsChoice()) {
+    pendingTranslationCommand = command
+    $('#route-chooser').hidden = false
+    $('#route-chooser').scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    return
+  }
   $('#queue-status').innerHTML = '<span class="pulse"></span><span>Đang gửi snapshot đã xác nhận đến broker…</span>'
   window.comicSub.readerCommand({ type: command })
   if (state.glossaryConsent === null && !state.privateSession) $('#continuity-card').hidden = false
@@ -86,7 +92,9 @@ async function chooseRoute(route) {
   await saveSettings({ route })
   $('#route-chooser').hidden = true
   toast(`${routeNames[route]} đã được chọn. Bạn luôn có thể đổi trước khi dịch.`)
-  ensureRoute('translate-current')
+  const command = pendingTranslationCommand || 'translate-current'
+  pendingTranslationCommand = null
+  ensureRoute(command)
 }
 
 function updateReaderStatus(payload) {
@@ -96,6 +104,9 @@ function updateReaderStatus(payload) {
     $('#snapshot-value').textContent = `${payload.candidateCount || 0} images`
     $('#session-title').textContent = payload.title || 'Chương đang đọc'
     $('#session-detail').textContent = payload.candidateCount ? 'Ảnh đã được chụp snapshot. Dịch chỉ chạy khi bạn bấm.' : 'Không thấy ảnh truyện đủ lớn trên trang này.'
+  }
+  if (payload.type === 'route-required') {
+    ensureRoute(payload.command || 'translate-current')
   }
   if (payload.type === 'queue') {
     $('#queue-status').innerHTML = `<span class="pulse"></span><span>Đang dịch ${payload.done + 1}/${payload.total} · ${payload.queued} đang chờ</span>`
@@ -110,7 +121,7 @@ function updateReaderStatus(payload) {
 function bind() {
   $('#address-form').addEventListener('submit', async (event) => {
     event.preventDefault(); const raw = $('#address-input').value.trim(); if (!raw) return
-    try { await window.comicSub.navigate(raw); setTab('reader'); toast('Đang mở trang trong Comic Sub…') } catch (error) { toast(error.message || 'URL không hợp lệ.') }
+    try { await window.comicSub.navigate(raw); setTab('reader'); toast('Đang mở trang trong Manga Sub…') } catch (error) { toast(error.message || 'URL không hợp lệ.') }
   })
   $('#back-button').addEventListener('click', () => window.comicSub.readerCommand({ type: 'back' }))
   $$('.nav-item').forEach((button) => button.addEventListener('click', () => setTab(button.dataset.tab)))
@@ -142,7 +153,7 @@ async function init() {
   window.comicSub.on('app:navigation', ({ url }) => { $('#address-input').value = url })
   window.comicSub.on('app:history', (history) => { state.history = history; renderLibrary() })
   window.comicSub.on('app:reader-crashed', () => toast('Reader đã dừng. Bạn có thể thử mở lại chương này.'))
-  window.comicSub.on('app:broker-receipt', (receipt) => { latestReceipt = { id: receipt.jobId, route: receipt.route, language: state.settings.targetLanguage, model: receipt.resolvedModel, image: receipt.route === 'managed' ? 'Comic Sub cloud' : 'My computer', text: receipt.resolvedProvider === 'gemini' ? `Google Gemini · ${receipt.resolvedModel}` : receipt.resolvedProvider }; renderReceipt() })
+  window.comicSub.on('app:broker-receipt', (receipt) => { latestReceipt = { id: receipt.jobId, route: receipt.route, language: state.settings.targetLanguage, model: receipt.resolvedModel, image: receipt.route === 'managed' ? 'Manga Sub Cloud' : 'My computer', text: receipt.resolvedProvider === 'gemini' ? `Google Gemini · ${receipt.resolvedModel}` : receipt.resolvedProvider }; renderReceipt() })
 }
 
 init()

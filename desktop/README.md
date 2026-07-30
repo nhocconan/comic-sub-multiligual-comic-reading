@@ -1,4 +1,4 @@
-# Comic Sub Desktop
+# Manga Sub Desktop
 
 An Electron prototype for the embedded comic reader described in
 `docs/EMBEDDED_READER_PRODUCT_PLAN.md`. It intentionally lives independently of
@@ -38,4 +38,4 @@ in Settings (the local default is `http://127.0.0.1:4100`). Tokens use Electron
 
 The included `file:` chapter is explicitly **sample mode**: it never uploads
 assets and cannot pretend to be a translation result. Start the broker (and
-Koharu or its explicit test adapter) before translating a real HTTP(S) chapter.
+the configured Manga Sub Cloud or local route before translating a real HTTP(S) chapter.

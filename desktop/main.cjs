@@ -1,11 +1,30 @@
 'use strict'
 
-const { app, BrowserWindow, WebContentsView, ipcMain, session, shell, safeStorage, clipboard } = require('electron')
+const { app, BrowserWindow, WebContentsView, ipcMain, session, shell, safeStorage, clipboard, nativeImage } = require('electron')
 const fs = require('node:fs')
 const path = require('node:path')
 const { randomUUID } = require('node:crypto')
-const { DEFAULT_SETTINGS, migrateSettings, safeUrl } = require('./lib/domain.cjs')
+const { DEFAULT_SETTINGS, migrateSettings, safeAssetReferrer, safeUrl } = require('./lib/domain.cjs')
 const { ALLOWED_TYPES, BrokerClientError, createBrokerClient, normalizeEndpoint, readBounded, sha256, sniffImageType } = require('./lib/broker-client.cjs')
+
+function prepareUserDataPath() {
+  const appData = app.getPath('appData')
+  const nextPath = path.join(appData, 'Manga Sub')
+  const legacyPaths = [
+    path.join(appData, 'comic-sub-desktop'),
+    path.join(appData, 'Comic Sub'),
+  ]
+  fs.mkdirSync(nextPath, { recursive: true })
+  for (const name of ['reader-state.json', 'provider-token.bin']) {
+    const destination = path.join(nextPath, name)
+    if (fs.existsSync(destination)) continue
+    const source = legacyPaths.map((directory) => path.join(directory, name)).find((candidate) => fs.existsSync(candidate))
+    if (source) fs.copyFileSync(source, destination)
+  }
+  app.setPath('userData', nextPath)
+}
+
+prepareUserDataPath()
 
 let windowRef
 let readerView
@@ -17,6 +36,14 @@ let pendingHistory
 let activeSnapshot = null
 let activeJobs = new Map()
 const readerBounds = { x: 296, y: 84, width: 820, height: 740 }
+const appIconPath = path.join(__dirname, 'build', 'icon.png')
+
+function installApplicationIcon() {
+  const icon = nativeImage.createFromPath(appIconPath)
+  if (icon.isEmpty()) return null
+  if (process.platform === 'darwin' && app.dock) app.dock.setIcon(icon)
+  return icon
+}
 
 function dataPath(name) { return path.join(app.getPath('userData'), name) }
 
@@ -207,7 +234,9 @@ function processingLocus() {
 function readerStatus(payload) { emit('reader:status', payload); commandReader(payload) }
 
 function assertCurrentNavigation(snapshot) {
-  if (!activeSnapshot || activeSnapshot.snapshotId !== snapshot.snapshotId || activeSnapshot.navigationId !== snapshot.navigationId) {
+  // A lazy-loading reader may publish a fresher snapshot while an existing
+  // batch is running. Only a true document navigation invalidates that batch.
+  if (!activeSnapshot || activeSnapshot.navigationId !== snapshot.navigationId) {
     throw new BrokerClientError('NAVIGATION_CHANGED', 'Trang đã thay đổi; vui lòng chụp snapshot lại.')
   }
 }
@@ -221,8 +250,11 @@ async function fetchRegisteredAsset(candidate, snapshot, signal) {
   const response = await readerView.webContents.session.fetch(candidate.sourceUrl, {
     method: 'GET',
     redirect: 'manual',
-    referrer: snapshot.pageUrl,
-    headers: { Referer: snapshot.pageUrl },
+    // Electron's session.fetch uses Chromium's strict-origin-when-cross-origin
+    // policy. Supplying both a full cross-origin referrer and Referer header
+    // makes Chromium reject cross-origin comic CDN requests as
+    // ERR_BLOCKED_BY_CLIENT.
+    headers: { Referer: safeAssetReferrer(snapshot.pageUrl) },
     signal,
   })
   if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
@@ -393,6 +425,7 @@ async function cancelActiveJobs() {
 }
 
 function createWindow() {
+  const icon = installApplicationIcon()
   windowRef = new BrowserWindow({
     width: 1480,
     height: 940,
@@ -400,6 +433,7 @@ function createWindow() {
     minHeight: 700,
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#111316',
+    ...(process.platform === 'darwin' || !icon ? {} : { icon }),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
@@ -470,7 +504,7 @@ ipcMain.handle('app:add-term', (_event, term) => {
   state.glossary = [...state.glossary, { id: `t_${Date.now()}`, value: clean, source: 'user' }]
   saveState(); return state.glossary
 })
-ipcMain.handle('app:copy-diagnostic', (_event, receipt) => { clipboard.writeText(`Comic Sub diagnostic: ${receipt?.id || 'unknown'}`); return true })
+ipcMain.handle('app:copy-diagnostic', (_event, receipt) => { clipboard.writeText(`Manga Sub diagnostic: ${receipt?.id || 'unknown'}`); return true })
 ipcMain.handle('app:model-choice', (_event, choice) => {
   if (choice === 'recommended') { state.settings.model = 'gemini-3.6-flash'; state.settings.modelProvenance = 'auto-recommended' }
   if (choice === 'keep') state.settings.modelProvenance = 'user-pinned'
@@ -482,6 +516,13 @@ ipcMain.on('reader:status', (event, payload) => {
   emit('reader:status', payload)
   if (payload?.type === 'snapshot') activeSnapshot = payload.snapshot || null
   if (payload?.type === 'translate-request') {
+    if (state.settings.route === 'ask') {
+      emit('reader:status', {
+        type: 'route-required',
+        command: payload.scope === 'all' ? 'translate-all-now' : 'translate-current',
+      })
+      return
+    }
     const snapshot = activeSnapshot
     if (!snapshot) {
       readerStatus({ type: 'broker-failure', code: 'SNAPSHOT_MISSING', message: 'Không có snapshot hợp lệ. Hãy quét lại trang.' })

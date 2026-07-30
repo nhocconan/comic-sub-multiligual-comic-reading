@@ -4,13 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'" />
-    <title>Comic Sub</title>
+    <title>Manga Sub</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="shell">
       <header class="topbar">
-        <div class="brand"><span class="brand-mark">C</span><span>Comic Sub</span><em>DESKTOP</em></div>
+        <div class="brand"><span class="brand-mark">M</span><span>Manga Sub</span><em>DESKTOP</em></div>
         <form id="address-form" class="address" aria-label="Mở chương truyện">
           <button type="button" id="back-button" title="Quay lại">←</button>
           <input id="address-input" autocomplete="off" spellcheck="false" placeholder="Dán link chương truyện…" />
@@ -38,14 +38,14 @@
             <h2>Dịch chương này ở đâu?</h2>
             <button data-route="local"><b>Trên máy này</b><small>Riêng tư · cần tải engine</small></button>
             <button data-route="paired"><b>Máy tính của tôi</b><small>Riêng tư · quét QR để kết nối</small></button>
-            <button data-route="managed" class="route-cloud"><b>Comic Sub cloud</b><small>Nhanh nhất · dùng thử không cần tài khoản</small></button>
+            <button data-route="managed" class="route-cloud"><b>Manga Sub Cloud</b><small>Nhanh nhất · dùng thử không cần tài khoản</small></button>
             <p class="route-note">Luôn xem được chính xác dữ liệu đi đâu trước khi chạy.</p>
           </div>
 
           <section class="continuity" id="continuity-card" hidden>
             <p class="eyebrow">SERIES MEMORY</p>
             <h2>Dùng tên nhân vật quen thuộc?</h2>
-            <p>Comic Sub có thể tra tên series và ngôn ngữ bạn chọn từ nguồn đã duyệt. Không gửi ảnh, OCR, URL chương hay lịch sử đọc.</p>
+            <p>Manga Sub có thể tra tên series và ngôn ngữ bạn chọn từ nguồn đã duyệt. Không gửi ảnh, OCR, URL chương hay lịch sử đọc.</p>
             <div><button id="lookup-accept" class="mini-primary">Dùng nguồn tra cứu</button><button id="lookup-decline">Chỉ dùng trên máy</button></div>
           </section>
         </section>
@@ -66,7 +66,7 @@
           </dl>
           <section class="receipt" id="receipt-card">
             <div class="receipt-title"><span>JOB RECEIPT</span><button id="copy-diagnostic" disabled>Copy ID</button></div>
-            <p>Chưa có job nào. Khi dịch, Comic Sub sẽ ghi rõ route thực tế và nơi dữ liệu được xử lý.</p>
+            <p>Chưa có job nào. Khi dịch, Manga Sub sẽ ghi rõ route thực tế và nơi dữ liệu được xử lý.</p>
           </section>
           <button class="open-sample" id="open-sample">Mở sample test được cấp phép →</button>
         </aside>
@@ -85,7 +85,7 @@
             <label>Định dạng dịch<select id="profile"><option value="fast">Fast</option><option value="balanced">Balanced</option><option value="quality">Quality</option></select></label>
           </section>
           <section class="settings-section"><h2>Translation location</h2>
-            <label>Route mặc định<select id="default-route"><option value="ask">Ask each time</option><option value="local">On this computer</option><option value="paired">My computer</option><option value="managed">Comic Sub cloud</option><option value="byo">My computer + external AI</option></select></label>
+            <label>Route mặc định<select id="default-route"><option value="ask">Ask each time</option><option value="local">On this computer</option><option value="paired">My computer</option><option value="managed">Manga Sub Cloud</option><option value="byo">My computer + external AI</option></select></label>
             <p class="hint">Auto chỉ dùng route bạn đã duyệt. App không tự chuyển sang cloud.</p>
           </section>
           <section class="settings-section"><h2>Broker connection</h2>

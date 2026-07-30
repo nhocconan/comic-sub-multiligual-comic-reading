@@ -1,10 +1,18 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
-const { estimateBatch, migrateSettings, receiptFor, safeUrl } = require('../lib/domain.cjs')
+const { estimateBatch, migrateSettings, receiptFor, safeAssetReferrer, safeUrl } = require('../lib/domain.cjs')
 
 test('sanitizes browser URLs and rejects unsafe protocols', () => {
   assert.equal(safeUrl('https://user:pass@example.com/chapter#panel').startsWith('https://example.com/chapter'), true)
   assert.throws(() => safeUrl('file:///etc/passwd'))
+})
+
+test('uses an origin-only asset referrer accepted by Chromium cross-origin fetches', () => {
+  assert.equal(
+    safeAssetReferrer('https://www.baozimh.com/comic/chapter/title/0_807.html?from=reader#panel'),
+    'https://www.baozimh.com/',
+  )
+  assert.throws(() => safeAssetReferrer('file:///etc/passwd'))
 })
 
 test('managed all snapshot has a capped transparent estimate', () => {
@@ -28,6 +36,6 @@ test('production broker is the zero-config default', () => {
 test('receipt makes an external AI text destination explicit', () => {
   const receipt = receiptFor({ route: 'byo', serverUrl: 'https://reader.example.test' })
   assert.equal(receipt.imageDestination, 'My computer')
-  assert.match(receipt.textDestination, /Google Gemini/)
+  assert.match(receipt.textDestination, /External AI/)
   assert.equal(receipt.server, 'reader.example.test')
 })

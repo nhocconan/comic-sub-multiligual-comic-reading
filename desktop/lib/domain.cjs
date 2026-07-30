@@ -20,6 +20,11 @@ function safeUrl(value) {
   return url.toString()
 }
 
+function safeAssetReferrer(pageUrl) {
+  const url = new URL(safeUrl(pageUrl))
+  return `${url.origin}/`
+}
+
 function estimateBatch(count, route) {
   const safeCount = Math.max(0, Math.min(200, Number(count) || 0))
   return {
@@ -44,14 +49,14 @@ function migrateSettings(saved = {}) {
 
 function receiptFor({ route = 'managed', profile = 'balanced', model = 'gemini-3.6-flash', serverUrl = '', language = 'vi-VN' } = {}) {
   const routeLabel = {
-    managed: 'Comic Sub cloud',
+    managed: 'Manga Sub Cloud',
     local: 'This computer',
     paired: 'My computer',
     byo: 'My computer + external AI',
     ask: 'Route not chosen',
   }[route] || 'Route not chosen'
-  const imageDestination = route === 'managed' ? 'Comic Sub cloud' : route === 'paired' || route === 'byo' ? 'My computer' : 'This device'
-  const textDestination = route === 'managed' ? 'Comic Sub cloud' : route === 'byo' ? 'Google Gemini through your API key' : imageDestination
+  const imageDestination = route === 'managed' ? 'Manga Sub Cloud' : route === 'paired' || route === 'byo' ? 'My computer' : 'This device'
+  const textDestination = route === 'managed' ? 'Manga Sub Cloud' : route === 'byo' ? 'External AI through your API key' : imageDestination
   return {
     id: `cs_${Math.random().toString(36).slice(2, 10)}`,
     routeLabel,
@@ -66,4 +71,4 @@ function receiptFor({ route = 'managed', profile = 'balanced', model = 'gemini-3
   }
 }
 
-module.exports = { DEFAULT_SETTINGS, estimateBatch, migrateSettings, receiptFor, safeUrl }
+module.exports = { DEFAULT_SETTINGS, estimateBatch, migrateSettings, receiptFor, safeAssetReferrer, safeUrl }

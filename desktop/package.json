@@ -1,9 +1,9 @@
 {
-  "name": "comic-sub-desktop",
+  "name": "manga-sub-desktop",
   "version": "0.1.0",
   "private": true,
-  "author": "Comic Sub",
-  "description": "Comic Sub embedded comic reader and translation app",
+  "author": "Manga Sub",
+  "description": "Manga Sub embedded comic reader and translation app",
   "main": "main.cjs",
   "scripts": {
     "dev": "electron .",
@@ -14,20 +14,27 @@
   },
   "build": {
     "appId": "com.comicsub.reader",
-    "productName": "Comic Sub",
+    "productName": "Manga Sub",
     "files": [
       "main.cjs",
       "preload.cjs",
       "reader-preload.cjs",
       "lib/**/*",
       "app/**/*",
+      "build/icon.png",
       "package.json"
     ],
     "mac": {
       "category": "public.app-category.entertainment",
       "icon": "build/icon.icns"
     },
-    "win": { "target": "nsis" }
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "icon": "build/icon.png"
+    }
   },
   "devDependencies": {
     "electron": "^37.2.6",
