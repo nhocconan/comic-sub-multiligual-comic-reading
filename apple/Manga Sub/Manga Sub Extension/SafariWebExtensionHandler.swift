@@ -1,6 +1,6 @@
 //
 //  SafariWebExtensionHandler.swift
-//  Bong Bóng Extension
+//  Manga Sub Extension
 //
 //  Created by Tien Le on 29/7/26.
 //

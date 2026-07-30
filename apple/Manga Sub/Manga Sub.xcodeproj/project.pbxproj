@@ -15,7 +15,7 @@
 		3C4B6674301A2B8B0061FD30 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C4B6673301A2B8B0061FD30 /* ViewController.swift */; };
 		3C4B6677301A2B8B0061FD30 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 3C4B6675301A2B8B0061FD30 /* LaunchScreen.storyboard */; };
 		3C4B667A301A2B8B0061FD30 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 3C4B6678301A2B8B0061FD30 /* Main.storyboard */; };
-		3C4B6682301A2B8D0061FD30 /* Bong Bóng Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3C4B6681301A2B8D0061FD30 /* Bong Bóng Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		3C4B6682301A2B8D0061FD30 /* Manga Sub Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 3C4B6681301A2B8D0061FD30 /* Manga Sub Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		3C4B6687301A2B8D0061FD30 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3C4B6686301A2B8D0061FD30 /* SafariWebExtensionHandler.swift */; };
 		3C4B6689301A2B8D0061FD30 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 3C4B667B301A2B8C0061FD30 /* Assets.xcassets */; };
 		3C4B669C301A2B920061FD30 /* popup.js in Resources */ = {isa = PBXBuildFile; fileRef = 3C4B6694301A2B920061FD30 /* popup.js */; };
@@ -35,7 +35,7 @@
 			containerPortal = 3C4B665C301A2B8B0061FD30 /* Project object */;
 			proxyType = 1;
 			remoteGlobalIDString = 3C4B6680301A2B8D0061FD30;
-			remoteInfo = "Bong Bóng Extension";
+			remoteInfo = "Manga Sub Extension";
 		};
 /* End PBXContainerItemProxy section */
 
@@ -46,7 +46,7 @@
 			dstPath = "";
 			dstSubfolderSpec = 13;
 			files = (
-				3C4B6682301A2B8D0061FD30 /* Bong Bóng Extension.appex in Embed Foundation Extensions */,
+				3C4B6682301A2B8D0061FD30 /* Manga Sub Extension.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -100,8 +100,8 @@
 		3C4B665B301A2B8B0061FD30 = {
 			isa = PBXGroup;
 			children = (
-				3C4B6666301A2B8B0061FD30 /* Bong Bóng */,
-				3C4B6685301A2B8D0061FD30 /* Bong Bóng Extension */,
+				3C4B6666301A2B8B0061FD30 /* Manga Sub */,
+				3C4B6685301A2B8D0061FD30 /* Manga Sub Extension */,
 				3C4B6665301A2B8B0061FD30 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -115,7 +115,7 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		3C4B6666301A2B8B0061FD30 /* Bong Bóng */ = {
+		3C4B6666301A2B8B0061FD30 /* Manga Sub */ = {
 			isa = PBXGroup;
 			children = (
 				3C4B6667301A2B8B0061FD30 /* AppDelegate.swift */,
@@ -127,7 +127,7 @@
 				3C4B667C301A2B8C0061FD30 /* Info.plist */,
 				3C4B6669301A2B8B0061FD30 /* Resources */,
 			);
-			path = "Bong Bóng";
+			path = "Manga Sub";
 			sourceTree = "<group>";
 		};
 		3C4B6669301A2B8B0061FD30 /* Resources */ = {
@@ -140,14 +140,14 @@
 			path = Resources;
 			sourceTree = "<group>";
 		};
-		3C4B6685301A2B8D0061FD30 /* Bong Bóng Extension */ = {
+		3C4B6685301A2B8D0061FD30 /* Manga Sub Extension */ = {
 			isa = PBXGroup;
 			children = (
 				3C4B6693301A2B920061FD30 /* Resources */,
 				3C4B6686301A2B8D0061FD30 /* SafariWebExtensionHandler.swift */,
 				3C4B6688301A2B8D0061FD30 /* Info.plist */,
 			);
-			path = "Bong Bóng Extension";
+			path = "Manga Sub Extension";
 			sourceTree = "<group>";
 		};
 		3C4B6693301A2B920061FD30 /* Resources */ = {
@@ -164,15 +164,15 @@
 				3C4B66A5301A2B920061FD30 /* icons */,
 			);
 			name = Resources;
-			path = "Bong Bóng Extension";
+			path = "Manga Sub Extension";
 			sourceTree = SOURCE_ROOT;
 		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		3C4B6663301A2B8B0061FD30 /* Bong Bóng */ = {
+		3C4B6663301A2B8B0061FD30 /* Manga Sub */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 3C4B6690301A2B8D0061FD30 /* Build configuration list for PBXNativeTarget "Bong Bóng" */;
+			buildConfigurationList = 3C4B6690301A2B8D0061FD30 /* Build configuration list for PBXNativeTarget "Manga Sub" */;
 			buildPhases = (
 				3C4B6660301A2B8B0061FD30 /* Sources */,
 				3C4B6661301A2B8B0061FD30 /* Frameworks */,
@@ -184,16 +184,16 @@
 			dependencies = (
 				3C4B6684301A2B8D0061FD30 /* PBXTargetDependency */,
 			);
-			name = "Bong Bóng";
+			name = "Manga Sub";
 			packageProductDependencies = (
 			);
 			productName = "Comic Sub";
 			productReference = 3C4B6664301A2B8B0061FD30 /* Comic Sub.app */;
 			productType = "com.apple.product-type.application";
 		};
-		3C4B6680301A2B8D0061FD30 /* Bong Bóng Extension */ = {
+		3C4B6680301A2B8D0061FD30 /* Manga Sub Extension */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 3C4B668C301A2B8D0061FD30 /* Build configuration list for PBXNativeTarget "Bong Bóng Extension" */;
+			buildConfigurationList = 3C4B668C301A2B8D0061FD30 /* Build configuration list for PBXNativeTarget "Manga Sub Extension" */;
 			buildPhases = (
 				3C4B667D301A2B8D0061FD30 /* Sources */,
 				3C4B667E301A2B8D0061FD30 /* Frameworks */,
@@ -203,7 +203,7 @@
 			);
 			dependencies = (
 			);
-			name = "Bong Bóng Extension";
+			name = "Manga Sub Extension";
 			packageProductDependencies = (
 			);
 			productName = "Comic Sub Extension";
@@ -228,7 +228,7 @@
 					};
 				};
 			};
-			buildConfigurationList = 3C4B665F301A2B8B0061FD30 /* Build configuration list for PBXProject "Bong Bóng" */;
+			buildConfigurationList = 3C4B665F301A2B8B0061FD30 /* Build configuration list for PBXProject "Manga Sub" */;
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -242,8 +242,8 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				3C4B6663301A2B8B0061FD30 /* Bong Bóng */,
-				3C4B6680301A2B8D0061FD30 /* Bong Bóng Extension */,
+				3C4B6663301A2B8B0061FD30 /* Manga Sub */,
+				3C4B6680301A2B8D0061FD30 /* Manga Sub Extension */,
 			);
 		};
 /* End PBXProject section */
@@ -304,7 +304,7 @@
 /* Begin PBXTargetDependency section */
 		3C4B6684301A2B8D0061FD30 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = 3C4B6680301A2B8D0061FD30 /* Bong Bóng Extension */;
+			target = 3C4B6680301A2B8D0061FD30 /* Manga Sub Extension */;
 			targetProxy = 3C4B6683301A2B8D0061FD30 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
@@ -463,7 +463,7 @@
 				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 897JP9X77U;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Bong Bóng Extension/Info.plist";
+				INFOPLIST_FILE = "Manga Sub Extension/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Comic Sub";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -496,7 +496,7 @@
 				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 897JP9X77U;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Bong Bóng Extension/Info.plist";
+				INFOPLIST_FILE = "Manga Sub Extension/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Comic Sub";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -531,7 +531,7 @@
 				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 897JP9X77U;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Bong Bóng/Info.plist";
+				INFOPLIST_FILE = "Manga Sub/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Comic Sub";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -571,7 +571,7 @@
 				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = 897JP9X77U;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = "Bong Bóng/Info.plist";
+				INFOPLIST_FILE = "Manga Sub/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Comic Sub";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
@@ -605,7 +605,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		3C4B665F301A2B8B0061FD30 /* Build configuration list for PBXProject "Bong Bóng" */ = {
+		3C4B665F301A2B8B0061FD30 /* Build configuration list for PBXProject "Manga Sub" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				3C4B668A301A2B8D0061FD30 /* Debug */,
@@ -614,7 +614,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		3C4B668C301A2B8D0061FD30 /* Build configuration list for PBXNativeTarget "Bong Bóng Extension" */ = {
+		3C4B668C301A2B8D0061FD30 /* Build configuration list for PBXNativeTarget "Manga Sub Extension" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				3C4B668D301A2B8D0061FD30 /* Debug */,
@@ -623,7 +623,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		3C4B6690301A2B8D0061FD30 /* Build configuration list for PBXNativeTarget "Bong Bóng" */ = {
+		3C4B6690301A2B8D0061FD30 /* Build configuration list for PBXNativeTarget "Manga Sub" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				3C4B6691301A2B8D0061FD30 /* Debug */,

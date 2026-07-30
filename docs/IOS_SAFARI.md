@@ -3,7 +3,7 @@
 The Apple project is at:
 
 ```text
-apple/Bong Bóng/Bong Bóng.xcodeproj
+apple/Manga Sub/Manga Sub.xcodeproj
 ```
 
 The display name uses Unicode, so the folder may appear with decomposed accents
@@ -30,8 +30,8 @@ Xcode 26.4 or later:
 
 ```bash
 xcodebuild \
-  -project "apple/Bong Bóng/Bong Bóng.xcodeproj" \
-  -scheme "Bong Bóng" \
+  -project "apple/Manga Sub/Manga Sub.xcodeproj" \
+  -scheme "Manga Sub" \
   -configuration Debug \
   -sdk iphonesimulator \
   -destination "platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4" \
@@ -45,7 +45,7 @@ layout. Simulator builds do not require an Apple Developer Program membership.
 ## Install on a real iPhone or iPad
 
 1. Open the Xcode project.
-2. Select the **Bong Bóng** project, then both app and extension targets.
+2. Select the **Manga Sub** project, then both app and extension targets.
 3. Under **Signing & Capabilities**, choose the same Apple development team for
    both targets.
 4. Keep bundle IDs related:

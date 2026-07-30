@@ -1132,7 +1132,7 @@ async function ensureProject(apiBase, tabId, activation, signal, authKey) {
   const project = await apiJson(
     apiBase,
     '/projects',
-    jsonOptions('POST', { name: `Bong Bong tab ${tabId} ${new Date().toISOString()}` }),
+    jsonOptions('POST', { name: `Manga Sub tab ${tabId} ${new Date().toISOString()}` }),
     signal,
     API_FETCH_TIMEOUT_MS,
     authKey,

@@ -1,6 +1,6 @@
 //
 //  SceneDelegate.swift
-//  Bong Bóng
+//  Manga Sub
 //
 //  Created by Tien Le on 29/7/26.
 //

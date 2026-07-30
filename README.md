@@ -88,7 +88,7 @@ npm start --prefix desktop
 cd android && ./gradlew assembleDebug
 ```
 
-Open `apple/Bong Bóng/Bong Bóng.xcodeproj` for iOS. Signed internal builds use
+Open `apple/Manga Sub/Manga Sub.xcodeproj` for iOS. Signed internal builds use
 the existing project team and bundle identifier.
 
 ### 3. Load the optional extension
@@ -104,7 +104,7 @@ the existing project team and bundle identifier.
 
 #### Safari on iPhone and iPad
 
-Open the Xcode project under `apple/Bong Bóng/`. The containing iOS app and
+Open the Xcode project under `apple/Manga Sub/`. The containing iOS app and
 Safari Web Extension share the exact desktop WebExtension sources; only the
 native wrapper is Apple-specific. See
 [`docs/IOS_SAFARI.md`](docs/IOS_SAFARI.md) for simulator, device signing,

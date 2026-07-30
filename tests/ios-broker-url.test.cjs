@@ -4,7 +4,7 @@ const { resolve } = require('node:path')
 const test = require('node:test')
 
 const source = readFileSync(
-  resolve(__dirname, '..', 'apple', 'Bong Bóng', 'Bong Bóng', 'ViewController.swift'),
+  resolve(__dirname, '..', 'apple', 'Manga Sub', 'Manga Sub', 'ViewController.swift'),
   'utf8',
 )
 
