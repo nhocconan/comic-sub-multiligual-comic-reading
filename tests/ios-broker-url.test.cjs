@@ -72,12 +72,12 @@ test('iOS reader renders broker regions directly and ignores its own overlay mut
   assert.match(source, /mutations\.some\(mutation => !isReaderMutation\(mutation\)\)/)
 })
 
-test('Translate Current defaults to one image and on-device OCR starts with the fast Vision path', () => {
+test('Translate Current selects the image most visible at click time and OCR starts fast', () => {
   assert.match(source, /var lookAhead = 0/)
-  assert.match(
-    source,
-    /case \.visible:\s+selected = candidates\.first\(where: \{ \$0\.index >= currentAnchor\.index \}\)\.map \{ \[\$0\] \}/,
-  )
+  assert.match(source, /const currentCandidateId = \(\) =>/)
+  assert.match(source, /visibleWidth \* visibleHeight/)
+  assert.match(source, /currentCandidateId\(\)"/)
+  assert.match(source, /self\.startTranslation\(candidate\.map \{ \[\$0\] \} \?\? \[\]\)/)
   assert.match(source, /level: \.fast/)
   assert.match(source, /usesLanguageCorrection: false/)
   assert.match(source, /request\.recognitionLevel = level/)

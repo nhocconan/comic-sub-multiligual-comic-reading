@@ -1089,6 +1089,15 @@ private enum ReaderBridge {
         }, 280);
       };
       const imageFor = id => [...document.images].find(item => idFor(item) === id);
+      const currentCandidateId = () => {
+        const ranked = [...document.images].filter(visible).map(image => {
+          const rect = image.getBoundingClientRect();
+          const visibleWidth = Math.max(0, Math.min(rect.right, innerWidth) - Math.max(rect.left, 0));
+          const visibleHeight = Math.max(0, Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0));
+          return { image, area: visibleWidth * visibleHeight, distance: Math.abs(rect.top) };
+        }).sort((a, b) => b.area - a.area || a.distance - b.distance);
+        return ranked[0] && ranked[0].area > 0 ? idFor(ranked[0].image) : null;
+      };
       const layers = new Map();
       const ensureLayer = id => {
         if (layers.has(id)) return layers.get(id);
@@ -1186,7 +1195,7 @@ private enum ReaderBridge {
         regions.forEach((region, index) => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, boxes[index]); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:2px;background:rgba(255,253,245,.96);color:#17130e;border-radius:4px;text-align:center;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.08;overflow:hidden;word-break:break-word;'; target.layer.append(node); if (!semanticOnly) fitText(node); }); return true;
       };
       const relayout = () => layers.forEach((_, id) => layout(id));
-      window.__comicSubReaderBridge = { scan, scrollToCandidate: id => { const image = imageFor(id); if (image) image.scrollIntoView({ block: 'start', behavior: 'auto' }); return !!image; }, applyRendered, applyRegions, relayout, clear: id => { layers.get(id)?.remove(); layers.delete(id); } };
+      window.__comicSubReaderBridge = { scan, currentCandidateId, scrollToCandidate: id => { const image = imageFor(id); if (image) image.scrollIntoView({ block: 'start', behavior: 'auto' }); return !!image; }, applyRendered, applyRegions, relayout, clear: id => { layers.get(id)?.remove(); layers.delete(id); } };
       const belongsToReaderLayer = node => node?.nodeType === Node.ELEMENT_NODE &&
         (node.matches?.('[data-comic-sub-layer]') || node.closest?.('[data-comic-sub-layer]'));
       const isReaderMutation = mutation => {
@@ -1565,12 +1574,23 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private enum TranslationScope { case visible, all }
 
     private func beginTranslation(scope: TranslationScope) {
-        let selected: [WebCandidate]
         switch scope {
         case .visible:
-            selected = candidates.first(where: { $0.index >= currentAnchor.index }).map { [$0] } ?? []
-        case .all: selected = candidates
+            webView.evaluateJavaScript(
+                "window.__comicSubReaderBridge && window.__comicSubReaderBridge.currentCandidateId()"
+            ) { [weak self] value, _ in
+                guard let self else { return }
+                let candidate = (value as? String).flatMap { id in
+                    self.candidates.first(where: { $0.id == id })
+                } ?? self.candidates.first(where: { $0.index >= self.currentAnchor.index })
+                self.startTranslation(candidate.map { [$0] } ?? [])
+            }
+        case .all:
+            startTranslation(candidates)
         }
+    }
+
+    private func startTranslation(_ selected: [WebCandidate]) {
         guard !selected.isEmpty else { return }
         cancelActiveTranslation(silent: true)
         isTranslatedSession = true
