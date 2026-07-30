@@ -128,22 +128,48 @@ private struct GlossarySnapshotEntry: Decodable {
     let sourceTerm: String
     let targetTerm: String
     let confidence: Double?
+    let status: String?
+    let origin: String?
 }
 
 private struct SeriesBootstrapResponse: Decodable {
     let glossarySnapshot: GlossarySnapshot
+    let research: SeriesResearchStatus?
+}
+
+private struct SeriesResearchStatus: Decodable {
+    let state: String
 }
 
 private struct SeriesContext: Hashable {
     let id: String
     let normalizedTitle: String
+    let displayTitle: String
     let chapterBoundary: String?
+    let targetLanguage: String
+    let knownAliases: [String]
+    let seedTerms: [SeriesTerm]
 }
 
 private struct SeriesTerm: Codable, Hashable {
     let sourceTerm: String
     let targetTerm: String
     let confidence: Double
+}
+
+private struct SeriesGlossaryPresentation {
+    let seriesTitle: String
+    let language: String
+    let terms: [SeriesGlossaryItem]
+    let researchState: String?
+}
+
+private struct SeriesGlossaryItem: Hashable {
+    let sourceTerm: String
+    let targetTerm: String
+    let confidence: Double
+    let origin: String
+    let status: String
 }
 
 private enum SeriesResearchConsent: String, Codable {
@@ -860,6 +886,18 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        #if DEBUG
+        // Developer-installed device builds can receive a one-time credential
+        // and start page through the signed launch environment. Neither value
+        // is compiled into the app; the token is persisted only in Keychain.
+        if let bootstrapToken = ProcessInfo.processInfo.environment["COMIC_SUB_BOOTSTRAP_TOKEN"],
+           !bootstrapToken.isEmpty {
+            settingsStore.saveToken(bootstrapToken)
+        }
+        let developerStartURL = ProcessInfo.processInfo.environment["COMIC_SUB_START_URL"].flatMap(URL.init(string:))
+        #else
+        let developerStartURL: URL? = nil
+        #endif
         title = "Comic Sub"
         configureWebView(privateSession: settings.privateSession, preserving: nil)
         configureChrome()
@@ -873,7 +911,14 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             }
         }
         brokerDiscovery.start()
-        updateRouteStatus("Dán link truyện để bắt đầu đọc.")
+        if let developerStartURL, ["http", "https"].contains(developerStartURL.scheme?.lowercased() ?? "") {
+            homeCard.isHidden = true
+            addressField.text = developerStartURL.absoluteString
+            webView.load(URLRequest(url: developerStartURL))
+            updateRouteStatus("Đang mở truyện đã chuẩn bị sẵn…")
+        } else {
+            updateRouteStatus("Dán link truyện để bắt đầu đọc.")
+        }
     }
 
     deinit { saveTimer?.invalidate() }
@@ -1259,9 +1304,12 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         ]
     }
 
-    // The series key is intentionally derived on-device from host + a cleaned
-    // page title. URLs, chapter images and raw OCR never become research input.
-    private func seriesContext(for pageURL: URL) -> SeriesContext {
+    // The series key is intentionally derived on-device from a stable work key
+    // plus target language. URLs, chapter images and raw OCR never become
+    // research input, and language-specific terminology can never bleed across
+    // Vietnamese/English/Japanese/Korean glossaries.
+    private func seriesContext(for pageURL: URL, targetLanguage: String? = nil) -> SeriesContext {
+        let targetLanguage = targetLanguage ?? settings.targetLanguage
         let rawTitle = pageTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let splitTitle = rawTitle.split(separator: "|", maxSplits: 1).first.map(String.init) ?? rawTitle
         let titleWithoutChapter = splitTitle.replacingOccurrences(
@@ -1272,10 +1320,75 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         let normalizedTitle = (titleWithoutChapter.isEmpty ? (pageURL.host ?? "Truyện chưa đặt tên") : titleWithoutChapter)
             .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let stableInput = "\(pageURL.host?.lowercased() ?? "local")\u{0}\(normalizedTitle.lowercased())"
+        let known = knownSeriesMetadata(for: pageURL, targetLanguage: targetLanguage)
+        let researchTitle = known?.researchTitle ?? String(normalizedTitle.prefix(256))
+        let displayTitle = known?.displayTitle ?? researchTitle
+        let stableWorkKey = known?.workKey ?? "\(pageURL.host?.lowercased() ?? "local")\u{0}\(normalizedTitle.lowercased())"
+        let stableInput = "\(stableWorkKey)\u{0}\(targetLanguage.lowercased())"
         let id = "series-\(digest(Data(stableInput.utf8)).prefix(48))"
         let chapter = rawTitle.isEmpty ? nil : String(rawTitle.prefix(128))
-        return SeriesContext(id: id, normalizedTitle: String(normalizedTitle.prefix(256)), chapterBoundary: chapter)
+        return SeriesContext(
+            id: id,
+            normalizedTitle: researchTitle,
+            displayTitle: displayTitle,
+            chapterBoundary: chapter,
+            targetLanguage: targetLanguage,
+            knownAliases: known?.aliases ?? [],
+            seedTerms: known?.seedTerms ?? []
+        )
+    }
+
+    private struct KnownSeriesMetadata {
+        let workKey: String
+        let researchTitle: String
+        let displayTitle: String
+        let aliases: [String]
+        let seedTerms: [SeriesTerm]
+    }
+
+    private func knownSeriesMetadata(for url: URL, targetLanguage: String) -> KnownSeriesMetadata? {
+        let host = url.host?.lowercased() ?? ""
+        let path = url.path.lowercased()
+        guard host == "baozimh.com" || host.hasSuffix(".baozimh.com"),
+              path.contains("/yaoshenji-taxuedongman/") else { return nil }
+        let commonAliases = ["妖神记", "妖神記", "Yaoshenji", "Tales of Demons and Gods", "Yêu Thần Ký"]
+        let mappings: [(String, String)]
+        switch targetLanguage {
+        case "vi":
+            mappings = [
+                ("妖神记", "Yêu Thần Ký"), ("聂离", "Nhiếp Ly"), ("叶紫芸", "Diệp Tử Vân"),
+                ("肖凝儿", "Tiêu Ngưng Nhi"), ("杜泽", "Đỗ Trạch"), ("陆飘", "Lục Phiêu"),
+                ("沈秀", "Thẩm Tú"), ("沈越", "Thẩm Việt"), ("陈林剑", "Trần Lâm Kiếm"),
+                ("杨欣", "Dương Hân"), ("呼延兰若", "Hô Diên Lan Nhược"), ("羽焰", "Vũ Diễm"),
+                ("龙羽音", "Long Vũ Âm"), ("顾贝", "Cố Bối"), ("李行云", "Lý Hành Vân"),
+                ("妖主", "Yêu Chủ"), ("光辉之城", "Quang Huy Chi Thành"),
+                ("圣兰学院", "Học viện Thánh Lan"), ("神圣世家", "Thần Thánh thế gia"),
+                ("风雪世家", "Phong Tuyết thế gia"), ("天痕世家", "Thiên Ngân thế gia"),
+                ("妖灵", "Yêu Linh"), ("妖灵师", "Yêu Linh Sư"), ("龙道境", "Long Đạo Cảnh"),
+            ]
+        case "en":
+            mappings = [
+                ("妖神记", "Tales of Demons and Gods"), ("聂离", "Nie Li"), ("叶紫芸", "Ye Ziyun"),
+                ("肖凝儿", "Xiao Ning'er"), ("杜泽", "Du Ze"), ("陆飘", "Lu Piao"),
+                ("沈秀", "Shen Xiu"), ("沈越", "Shen Yue"), ("陈林剑", "Chen Linjian"),
+                ("杨欣", "Yang Xin"), ("呼延兰若", "Huyan Lanruo"), ("羽焰", "Yu Yan"),
+                ("龙羽音", "Long Yuyin"), ("顾贝", "Gu Bei"), ("李行云", "Li Xingyun"),
+                ("妖主", "Demon Lord"), ("光辉之城", "Glory City"),
+                ("圣兰学院", "Holy Orchid Institute"), ("神圣世家", "Sacred Family"),
+                ("风雪世家", "Snow Wind Family"), ("天痕世家", "Heavenly Marks Family"),
+                ("妖灵", "Demon Spirit"), ("妖灵师", "Demon Spiritualist"),
+                ("龙道境", "Dao of Dragon Realm"),
+            ]
+        default:
+            mappings = [("妖神记", targetLanguage == "ja" ? "妖神記" : "요신기")]
+        }
+        return KnownSeriesMetadata(
+            workKey: "baozimh:yaoshenji-taxuedongman",
+            researchTitle: "Tales of Demons and Gods",
+            displayTitle: targetLanguage == "vi" ? "Yêu Thần Ký" : (targetLanguage == "en" ? "Tales of Demons and Gods" : mappings[0].1),
+            aliases: commonAliases,
+            seedTerms: mappings.map { SeriesTerm(sourceTerm: $0.0, targetTerm: $0.1, confidence: 1) }
+        )
     }
 
     private func consent(for series: SeriesContext) -> SeriesResearchConsent? {
@@ -1283,10 +1396,10 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     private func latestSeriesGlossary(client: BrokerClient, series: SeriesContext) async throws -> GlossarySnapshot {
-        // The first page remains fast and independent. Following a successful
-        // page, consent/local continuity has been recorded and every later job
-        // bootstraps then fetches the broker's current immutable snapshot.
-        guard let consent = consent(for: series) else { return glossarySnapshots[series.id] ?? .empty }
+        // Local/curated continuity is useful on the very first page. A missing
+        // research decision is therefore bootstrapped as declined; only the
+        // explicit AI action below grants outbound title research.
+        let consent = consent(for: series) ?? .declined
         let bootstrap = try await client.bootstrapSeries(seriesBootstrapPayload(series, consent: consent))
         let latest = (try? await client.seriesGlossary(series.id)) ?? bootstrap
         glossarySnapshots[series.id] = latest.glossarySnapshot
@@ -1297,8 +1410,8 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     private func seriesBootstrapPayload(_ series: SeriesContext, consent: SeriesResearchConsent) -> [String: Any] {
-        let continuity = inMemoryContinuity[series.id] ?? (settings.privateSession ? [] : seriesContinuityStore.terms(for: series.id))
-        let aliases = Array(Set(([series.normalizedTitle] + continuity.map(\.sourceTerm))
+        let continuity = seededContinuity(for: series)
+        let aliases = Array(Set(([series.normalizedTitle] + series.knownAliases + continuity.map(\.sourceTerm))
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && $0.count <= 256 })).sorted().prefix(1_000)
         var researchConsent: [String: Any] = [
@@ -1313,26 +1426,49 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             "title": series.normalizedTitle,
             "seriesStatus": "confirmed",
             "chapterBoundary": series.chapterBoundary ?? NSNull(),
-            "targetLanguage": settings.targetLanguage,
+            "targetLanguage": series.targetLanguage,
             "privateMode": settings.privateSession,
             "localContinuity": continuity.map { ["sourceTerm": $0.sourceTerm, "targetTerm": $0.targetTerm, "confidence": $0.confidence] },
-            "userCorrections": manualGlossaryCorrections(),
+            "userCorrections": [],
             "locallyObservedAliases": Array(aliases),
             "researchConsent": researchConsent,
         ]
     }
 
-    private func manualGlossaryCorrections() -> [[String: Any]] {
-        settings.glossary.split(whereSeparator: \.isNewline).compactMap { line in
+    private func parsedGlossary(_ text: String) -> [SeriesTerm] {
+        text.split(whereSeparator: \.isNewline).compactMap { line in
             let pair = line.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             guard pair.count == 2, !pair[0].isEmpty, !pair[1].isEmpty else { return nil }
-            return ["sourceTerm": pair[0], "targetTerm": pair[1]]
+            return SeriesTerm(sourceTerm: pair[0], targetTerm: pair[1], confidence: 1)
         }
+    }
+
+    private func seededContinuity(for series: SeriesContext) -> [SeriesTerm] {
+        var initial = inMemoryContinuity[series.id] ?? (settings.privateSession ? [] : seriesContinuityStore.terms(for: series.id))
+        initial.append(contentsOf: series.seedTerms)
+        // One-time compatibility for builds where the text field was global:
+        // import it into the currently opened series, then stop sharing it.
+        if !settings.glossary.isEmpty {
+            initial.append(contentsOf: parsedGlossary(settings.glossary))
+            settings.glossary = ""
+            settingsStore.save(settings)
+        }
+        var merged: [String: SeriesTerm] = [:]
+        for term in initial where !term.sourceTerm.isEmpty && !term.targetTerm.isEmpty {
+            let key = term.sourceTerm.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            if merged[key] == nil || term.confidence >= (merged[key]?.confidence ?? 0) { merged[key] = term }
+        }
+        let result = Array(merged.values).sorted {
+            $0.confidence == $1.confidence ? $0.sourceTerm.localizedStandardCompare($1.sourceTerm) == .orderedAscending : $0.confidence > $1.confidence
+        }.prefix(500).map { $0 }
+        inMemoryContinuity[series.id] = result
+        if !settings.privateSession { seriesContinuityStore.save(result, for: series.id) }
+        return result
     }
 
     private func mergeContinuity(_ terms: [SeriesTerm], into series: SeriesContext) {
         var merged: [String: SeriesTerm] = [:]
-        let existing = inMemoryContinuity[series.id] ?? (settings.privateSession ? [] : seriesContinuityStore.terms(for: series.id))
+        let existing = seededContinuity(for: series)
         for term in existing {
             merged["\(term.sourceTerm.lowercased())\u{0}\(term.targetTerm.lowercased())"] = term
         }
@@ -1342,6 +1478,61 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         let continuity = Array(merged.values).sorted { $0.confidence > $1.confidence }.prefix(500).map { $0 }
         inMemoryContinuity[series.id] = continuity
         if !settings.privateSession { seriesContinuityStore.save(continuity, for: series.id) }
+    }
+
+    private func glossaryPresentation(for series: SeriesContext, researchState: String? = nil) -> SeriesGlossaryPresentation {
+        let local = seededContinuity(for: series).map {
+            SeriesGlossaryItem(sourceTerm: $0.sourceTerm, targetTerm: $0.targetTerm, confidence: $0.confidence, origin: "Trên máy", status: "active")
+        }
+        let remote = (glossarySnapshots[series.id]?.entries ?? []).map {
+            SeriesGlossaryItem(
+                sourceTerm: $0.sourceTerm,
+                targetTerm: $0.targetTerm,
+                confidence: $0.confidence ?? 0.8,
+                origin: $0.origin == "external-research" ? "Nguồn công khai" : "Đã học",
+                status: $0.status ?? "active"
+            )
+        }
+        var values: [String: SeriesGlossaryItem] = [:]
+        for item in local + remote {
+            let key = item.sourceTerm.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            if values[key] == nil || item.confidence >= (values[key]?.confidence ?? 0) { values[key] = item }
+        }
+        let terms = values.values.sorted {
+            if $0.status != $1.status { return $0.status == "active" }
+            return $0.sourceTerm.localizedStandardCompare($1.sourceTerm) == .orderedAscending
+        }
+        return SeriesGlossaryPresentation(
+            seriesTitle: series.displayTitle,
+            language: languageName(series.targetLanguage),
+            terms: terms,
+            researchState: researchState
+        )
+    }
+
+    private func researchSeriesGlossary(_ series: SeriesContext) async throws -> SeriesGlossaryPresentation {
+        guard !settings.privateSession else {
+            throw BrokerError.request("Tắt phiên riêng tư để AI tra cứu tên truyện từ nguồn công khai.")
+        }
+        let token = settingsStore.loadToken()
+        guard !token.isEmpty else {
+            throw BrokerError.request("Chưa có token broker. Vào Cài đặt → Token broker rồi thử lại.")
+        }
+        let client = try BrokerClient(endpoint: brokerEndpoint, token: token, deviceID: deviceID, discoveredBroker: discoveredBroker)
+        seriesConsentStore.save(.granted, for: series.id)
+        settings.externalResearchAllowed = true
+        settingsStore.save(settings)
+        var response = try await client.bootstrapSeries(seriesBootstrapPayload(series, consent: .granted))
+        for _ in 0..<15 {
+            if ["complete", "unavailable", "failed", "disabled-private"].contains(response.research?.state ?? "") { break }
+            try await Task.sleep(nanoseconds: 800_000_000)
+            response = try await client.seriesGlossary(series.id)
+        }
+        glossarySnapshots[series.id] = response.glossarySnapshot
+        mergeContinuity(response.glossarySnapshot.entries.filter { ($0.status ?? "active") == "active" }.map {
+            SeriesTerm(sourceTerm: $0.sourceTerm, targetTerm: $0.targetTerm, confidence: $0.confidence ?? 0.8)
+        }, into: series)
+        return glossaryPresentation(for: series, researchState: response.research?.state)
     }
 
     private func recordSuccessfulTranslation(_ result: BrokerResult, series: SeriesContext, client: BrokerClient) {
@@ -1483,7 +1674,27 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     @objc private func showSettings() {
-        let controller = ReaderSettingsController(settings: settings, token: settingsStore.loadToken(), brokerConnection: brokerConnectionLabel) { [weak self] updated, token, needsWebViewReset in
+        let pageURL = webView.url
+        let currentSeriesTitle = pageURL.flatMap { url in
+            url.scheme?.hasPrefix("http") == true ? seriesContext(for: url).displayTitle : nil
+        }
+        let controller = ReaderSettingsController(
+            settings: settings,
+            token: settingsStore.loadToken(),
+            brokerConnection: brokerConnectionLabel,
+            currentSeriesTitle: currentSeriesTitle,
+            makeGlossaryController: { [weak self] targetLanguage in
+                guard let self, let pageURL, pageURL.scheme?.hasPrefix("http") == true else { return nil }
+                let series = self.seriesContext(for: pageURL, targetLanguage: targetLanguage)
+                return SeriesGlossaryViewController(
+                    presentation: self.glossaryPresentation(for: series),
+                    research: { [weak self] in
+                        guard let self else { throw BrokerError.cancelled }
+                        return try await self.researchSeriesGlossary(series)
+                    }
+                )
+            }
+        ) { [weak self] updated, token, needsWebViewReset in
             guard let self else { return }
             let oldPrivate = self.settings.privateSession
             self.settings = updated
@@ -1495,6 +1706,10 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             self.updateRouteStatus(updated.privateSession ? "Phiên riêng tư: không lưu lịch sử." : "Đã lưu cài đặt cho thiết bị này.")
         }
         present(UINavigationController(rootViewController: controller), animated: true)
+    }
+
+    private func languageName(_ value: String) -> String {
+        ["vi": "Tiếng Việt", "en": "English", "ja": "日本語", "ko": "한국어", "zh-Hans": "中文 (Giản thể)", "zh-Hant": "中文 (Phồn thể)"][value] ?? value
     }
 
     @objc private func showHistory() {
@@ -1631,12 +1846,23 @@ private final class ReaderSettingsController: UITableViewController {
     private var settings: ReaderSettings
     private var token: String
     private let brokerConnection: String
+    private let currentSeriesTitle: String?
+    private let makeGlossaryController: (String) -> UIViewController?
     private let onSave: (ReaderSettings, String, Bool) -> Void
 
-    init(settings: ReaderSettings, token: String, brokerConnection: String, onSave: @escaping (ReaderSettings, String, Bool) -> Void) {
+    init(
+        settings: ReaderSettings,
+        token: String,
+        brokerConnection: String,
+        currentSeriesTitle: String?,
+        makeGlossaryController: @escaping (String) -> UIViewController?,
+        onSave: @escaping (ReaderSettings, String, Bool) -> Void
+    ) {
         self.settings = settings
         self.token = token
         self.brokerConnection = brokerConnection
+        self.currentSeriesTitle = currentSeriesTitle
+        self.makeGlossaryController = makeGlossaryController
         self.onSave = onSave
         super.init(style: .insetGrouped)
         title = "Cài đặt reader"
@@ -1671,7 +1897,10 @@ private final class ReaderSettingsController: UITableViewController {
         case (1, 2): cell.textLabel?.text = "Token broker"; cell.detailTextLabel?.text = token.isEmpty ? "Chưa có" : "Đã lưu trong Keychain"
         case (2, 0): cell.textLabel?.text = "Phiên riêng tư"; cell.accessoryType = .none; cell.accessoryView = switchView(isOn: settings.privateSession, action: #selector(togglePrivate(_:)))
         case (2, 1): cell.textLabel?.text = "Tra cứu tên từ web"; cell.accessoryType = .none; cell.accessoryView = switchView(isOn: settings.externalResearchAllowed, action: #selector(toggleResearch(_:)))
-        case (3, 0): cell.textLabel?.text = "Glossary"; cell.detailTextLabel?.text = settings.glossary.isEmpty ? "Chưa có" : "Đã có \(settings.glossary.split(separator: "\n").count) mục"
+        case (3, 0):
+            cell.textLabel?.text = "Tên trong truyện này"
+            cell.detailTextLabel?.text = currentSeriesTitle ?? "Mở một truyện trước"
+            cell.accessoryType = currentSeriesTitle == nil ? .none : .disclosureIndicator
         case (3, 1): cell.textLabel?.text = "Giải thích research"; cell.detailTextLabel?.text = "Chỉ tên truyện + ngôn ngữ"
         case (4, 0): cell.textLabel?.text = "Giữ lịch sử"; cell.detailTextLabel?.text = "\(settings.historyRetentionDays) ngày"
         case (4, 1): cell.textLabel?.text = "Xoá lịch sử"; cell.textLabel?.textColor = .systemRed; cell.detailTextLabel?.text = nil
@@ -1690,7 +1919,9 @@ private final class ReaderSettingsController: UITableViewController {
         case (1, 0): choose("Chế độ xử lý", values: ProcessingRoute.allCases.map { ($0.rawValue, $0.title) }) { self.settings.route = ProcessingRoute(rawValue: $0) ?? .automatic }
         case (1, 1): edit("Broker HTTPS dự phòng", initial: settings.endpoint, secure: false) { self.settings.endpoint = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         case (1, 2): edit("Token broker", initial: token, secure: true) { self.token = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        case (3, 0): edit("Glossary", initial: settings.glossary, secure: false) { self.settings.glossary = $0 }
+        case (3, 0):
+            guard let glossary = makeGlossaryController(settings.targetLanguage) else { return }
+            navigationController?.pushViewController(glossary, animated: true)
         case (3, 1): showResearchDisclosure()
         case (4, 0): choose("Giữ lịch sử", values: [("30", "30 ngày"), ("90", "90 ngày"), ("365", "1 năm")]) { self.settings.historyRetentionDays = Int($0) ?? 90 }
         case (4, 1): confirmClearHistory()
@@ -1756,6 +1987,100 @@ private final class ReaderSettingsController: UITableViewController {
 
     private func languageName(_ value: String) -> String {
         ["vi": "Tiếng Việt", "en": "English", "ja": "日本語", "ko": "한국어", "zh-Hans": "中文 (Giản thể)", "zh-Hant": "中文 (Phồn thể)"][value] ?? value
+    }
+}
+
+@MainActor
+private final class SeriesGlossaryViewController: UITableViewController {
+    private var presentation: SeriesGlossaryPresentation
+    private let research: () async throws -> SeriesGlossaryPresentation
+    private var researchTask: Task<Void, Never>?
+
+    init(
+        presentation: SeriesGlossaryPresentation,
+        research: @escaping () async throws -> SeriesGlossaryPresentation
+    ) {
+        self.presentation = presentation
+        self.research = research
+        super.init(style: .insetGrouped)
+        title = "Tên trong truyện này"
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    deinit { researchTask?.cancel() }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        tableView.backgroundColor = UIColor { traits in
+            traits.userInterfaceStyle == .dark ? UIColor(red: 0.055, green: 0.052, blue: 0.047, alpha: 1) : .systemGroupedBackground
+        }
+        navigationItem.largeTitleDisplayMode = .never
+        navigationItem.rightBarButtonItem = UIBarButtonItem(
+            title: "AI tìm thêm",
+            style: .plain,
+            target: self,
+            action: #selector(findWithAI)
+        )
+    }
+
+    override func numberOfSections(in tableView: UITableView) -> Int { 1 }
+
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        presentation.terms.count
+    }
+
+    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        "\(presentation.seriesTitle) · \(presentation.language)"
+    }
+
+    override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        let state: String
+        switch presentation.researchState {
+        case "complete": state = "AI đã đối chiếu thêm với nguồn công khai."
+        case "unavailable": state = "Nguồn công khai đang không khả dụng; tên có sẵn trên máy vẫn được giữ."
+        case "queued", "running": state = "AI đang đối chiếu tên theo ngôn ngữ đã chọn."
+        default: state = "Chỉ áp dụng cho bộ truyện và ngôn ngữ này. Đổi ngôn ngữ sẽ dùng glossary riêng."
+        }
+        return "\(presentation.terms.count) tên · \(state)"
+    }
+
+    override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let item = presentation.terms[indexPath.row]
+        let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
+        cell.textLabel?.text = item.targetTerm
+        cell.textLabel?.font = .preferredFont(forTextStyle: .headline)
+        cell.detailTextLabel?.text = "\(item.sourceTerm)  ·  \(item.origin)\(item.status == "quarantined" ? " · Chờ xác nhận" : "")"
+        cell.detailTextLabel?.textColor = .secondaryLabel
+        cell.detailTextLabel?.font = .preferredFont(forTextStyle: .subheadline)
+        cell.selectionStyle = .none
+        return cell
+    }
+
+    @objc private func findWithAI() {
+        guard researchTask == nil else { return }
+        navigationItem.rightBarButtonItem?.isEnabled = false
+        navigationItem.rightBarButtonItem?.title = "Đang tìm…"
+        let spinner = UIActivityIndicatorView(style: .medium)
+        spinner.startAnimating()
+        navigationItem.titleView = spinner
+        researchTask = Task { [weak self] in
+            guard let self else { return }
+            defer {
+                self.researchTask = nil
+                self.navigationItem.titleView = nil
+                self.navigationItem.rightBarButtonItem?.isEnabled = true
+                self.navigationItem.rightBarButtonItem?.title = "AI tìm thêm"
+            }
+            do {
+                self.presentation = try await self.research()
+                self.tableView.reloadData()
+            } catch {
+                let alert = UIAlertController(title: "Chưa tìm thêm được", message: error.localizedDescription, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: "Đóng", style: .default))
+                self.present(alert, animated: true)
+            }
+        }
     }
 }
 
