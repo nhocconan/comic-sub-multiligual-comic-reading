@@ -111,6 +111,8 @@ export class TranslationBroker {
     this.controllers = new Map()
     this.processing = new Set()
     this.batchTimers = new Map()
+    this.batchUploadCounts = new Map()
+    this.batchesWithNewAssets = new Set()
   }
 
   async initialize() {
@@ -291,22 +293,40 @@ export class TranslationBroker {
     if (!/^[a-f0-9]{64}$/.test(declaredHash ?? '') || declaredHash !== actualHash) {
       throw new BrokerError(422, 'ASSET_HASH_MISMATCH', 'x-content-sha256 must exactly match the body')
     }
-    const accepted = await this.repository.mutate((state) => {
+    const batchId = this.repository.read((state) => {
       const job = state.jobs[jobId]
-      if (!job || !this.#owns(principal, job)) throw new BrokerError(404, 'JOB_NOT_FOUND', 'Job not found')
-      if (job.state !== 'WAITING_ASSET') {
-        if (job.asset?.sha256 === actualHash) return { duplicate: true, job: publicJob(job) }
-        throw new BrokerError(409, 'JOB_NOT_WAITING_FOR_ASSET', `Job is ${job.state}`)
+      if (!job || !this.#owns(principal, job)) {
+        throw new BrokerError(404, 'JOB_NOT_FOUND', 'Job not found')
       }
-      job.asset = { sha256: actualHash, contentType, byteLength: bytes.length }
-      Object.assign(job, structuredClone(transitionJob(job, 'QUEUED')))
-      return { duplicate: false, job: publicJob(job) }
+      return job.batchId
     })
-    if (!accepted.duplicate) {
-      await this.repository.writeAsset(jobId, bytes, 'source')
-      this.#scheduleBatch(accepted.job.batchId)
+    this.batchUploadCounts.set(batchId, (this.batchUploadCounts.get(batchId) ?? 0) + 1)
+    try {
+      const accepted = await this.repository.mutate((state) => {
+        const job = state.jobs[jobId]
+        if (!job || !this.#owns(principal, job)) throw new BrokerError(404, 'JOB_NOT_FOUND', 'Job not found')
+        if (job.state !== 'WAITING_ASSET') {
+          if (job.asset?.sha256 === actualHash) return { duplicate: true, job: publicJob(job) }
+          throw new BrokerError(409, 'JOB_NOT_WAITING_FOR_ASSET', `Job is ${job.state}`)
+        }
+        job.asset = { sha256: actualHash, contentType, byteLength: bytes.length }
+        Object.assign(job, structuredClone(transitionJob(job, 'QUEUED')))
+        return { duplicate: false, job: publicJob(job) }
+      })
+      if (!accepted.duplicate) {
+        await this.repository.writeAsset(jobId, bytes, 'source')
+        this.batchesWithNewAssets.add(batchId)
+      }
+      return accepted.job
+    } finally {
+      const remaining = (this.batchUploadCounts.get(batchId) ?? 1) - 1
+      if (remaining > 0) {
+        this.batchUploadCounts.set(batchId, remaining)
+      } else {
+        this.batchUploadCounts.delete(batchId)
+        if (this.batchesWithNewAssets.delete(batchId)) this.#scheduleBatch(batchId)
+      }
     }
-    return accepted.job
   }
 
   async cancel(principal, jobId) {

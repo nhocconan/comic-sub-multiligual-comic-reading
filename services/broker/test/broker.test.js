@@ -279,8 +279,11 @@ test('assets uploaded together are processed as one adapter batch', async () => 
     }, 'batch-window-key')
     let persistenceMutations = 0
     const mutate = app.repository.mutate.bind(app.repository)
-    app.repository.mutate = (...args) => {
+    app.repository.mutate = async (...args) => {
       persistenceMutations += 1
+      if (persistenceMutations === 2) {
+        await new Promise((resolve) => setTimeout(resolve, 200))
+      }
       return mutate(...args)
     }
     await Promise.all(batch.jobIds.map((jobId) =>
