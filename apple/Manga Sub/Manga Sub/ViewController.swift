@@ -48,7 +48,7 @@ private func uiText(_ english: String, _ vietnamese: String, language: AppLangua
     language == .vietnamese ? vietnamese : english
 }
 
-// Comic Sub Reader deliberately keeps remote web content inside WKWebView. The
+// Manga Sub Reader deliberately keeps remote web content inside WKWebView. The
 // page bridge is limited to discovered image metadata and reading anchors; it
 // never receives credentials, native filesystem access, or arbitrary IPC.
 
@@ -63,13 +63,13 @@ private enum ProcessingRoute: String, CaseIterable, Codable {
         case .automatic: return uiText("Safe Automatic", "Tự chọn an toàn", language: language)
         case .onDevice: return uiText("On Device", "Trên thiết bị", language: language)
         case .privateServer: return uiText("Private Server", "Server riêng", language: language)
-        case .managedCloud: return "Comic Sub Cloud"
+        case .managedCloud: return "Manga Sub Cloud"
         }
     }
 
     func privacySummary(language: AppLanguage = AppLanguageStore.shared.load()) -> String {
         switch self {
-        case .automatic: return uiText("Uses Apple Vision + Translation on device first, then falls back to your configured broker.", "Ưu tiên Apple Vision + Translation trên thiết bị, sau đó mới fallback sang broker đã cấu hình.", language: language)
+        case .automatic: return uiText("Uses Manga Sub Cloud when configured for higher-quality comic translation, with on-device translation as the private fallback.", "Ưu tiên Manga Sub Cloud khi đã cấu hình để dịch truyện chất lượng cao hơn; dịch trên thiết bị là phương án riêng tư dự phòng.", language: language)
         case .onDevice: return uiText("OCR and text translation stay on device when the language pack is installed.", "OCR và dịch văn bản đều chạy trên thiết bị khi gói ngôn ngữ đã cài.", language: language)
         case .privateServer: return uiText("Eligible images may be sent to your paired server over HTTPS.", "Ảnh phù hợp có thể được gửi đến server bạn đã ghép nối qua HTTPS.", language: language)
         case .managedCloud: return uiText("Used only after you confirm data transfer for this job.", "Chỉ dùng sau khi bạn xác nhận đường truyền dữ liệu cho job này.", language: language)
@@ -84,7 +84,7 @@ private struct ReaderSettings: Codable {
     var endpoint = "https://comic-be.dep.app"
     var lookAhead = 0
     var privateSession = false
-    var externalResearchAllowed = false
+    var externalResearchAllowed = true
     var glossary = ""
     var historyRetentionDays = 90
 }
@@ -330,7 +330,17 @@ private final class BrokerClient {
     }
 
     func flushBatch(_ batchID: String) async throws {
-        let _: BrokerBatch = try await json(path: "v1/job-batches/\(batchID)/flush", method: "POST")
+        let request = request(path: "v1/job-batches/\(batchID)/flush", method: "POST")
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, http.statusCode == 404,
+           let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let error = body["error"] as? [String: Any],
+           error["code"] as? String == "ROUTE_NOT_FOUND" {
+            // Broker builds before the explicit flush endpoint automatically
+            // schedule a batch shortly after the final asset upload.
+            return
+        }
+        try validate(response, body: data)
     }
 
     func bootstrapSeries(_ payload: [String: Any]) async throws -> SeriesBootstrapResponse {
@@ -389,6 +399,11 @@ private final class BrokerClient {
         let url = path.split(separator: "/", omittingEmptySubsequences: true).reduce(baseURL) {
             $0.appendingPathComponent(String($1), isDirectory: false)
         }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["COMIC_SUB_QA_SCOPE"] != nil {
+            NSLog("[MangaSubQA] broker %@ %@", method, url.path)
+        }
+        #endif
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 45
@@ -580,7 +595,21 @@ private final class OnDeviceComicOCR {
             minimumTextHeight: 0.008
         )
         let regions: [BrokerRegion]
-        if needsAccuratePass(fast, sourceLanguage: sourceLanguage) {
+        if isCJK(sourceLanguage) {
+            // Comic lettering frequently makes the fast pass look confident even
+            // when it skipped an entire bubble. Keep the fast geometry but always
+            // union it with an accurate CJK pass for recall.
+            let accurate = try await recognizePass(
+                cgImage,
+                width: width,
+                height: height,
+                recognitionLanguage: recognitionLanguage,
+                level: .accurate,
+                usesLanguageCorrection: true,
+                minimumTextHeight: 0.004
+            )
+            regions = (fast + accurate).filter { isPlausible($0.source, sourceLanguage: sourceLanguage) }
+        } else if needsAccuratePass(fast, sourceLanguage: sourceLanguage) {
             regions = try await recognizePass(
                 cgImage,
                 width: width,
@@ -597,7 +626,9 @@ private final class OnDeviceComicOCR {
             page: BrokerPage(width: width, height: height),
             regions: mergeDialogueLines(
                 sorted(regions, pageHeight: height),
-                sourceLanguage: sourceLanguage
+                sourceLanguage: sourceLanguage,
+                pageWidth: width,
+                pageHeight: height
             )
         )
     }
@@ -703,9 +734,11 @@ private final class OnDeviceComicOCR {
 
     private func mergeDialogueLines(
         _ regions: [BrokerRegion],
-        sourceLanguage: String
+        sourceLanguage: String,
+        pageWidth: Double,
+        pageHeight: Double
     ) -> [BrokerRegion] {
-        let cleaned = regions.compactMap { region -> BrokerRegion? in
+        var cleaned = regions.compactMap { region -> BrokerRegion? in
             let text = sanitized(region.source, sourceLanguage: sourceLanguage)
             guard !text.isEmpty, !isSiteWatermark(text) else { return nil }
             return BrokerRegion(
@@ -721,46 +754,139 @@ private final class OnDeviceComicOCR {
             )
         }
         guard isCJK(sourceLanguage) else { return cleaned }
-        var merged: [BrokerRegion] = []
-        for region in cleaned {
-            guard let previous = merged.last else {
-                merged.append(region)
-                continue
-            }
-            let horizontalOverlap = max(
-                0,
-                min(previous.x + previous.width, region.x + region.width) - max(previous.x, region.x)
-            )
-            let overlapRatio = horizontalOverlap / max(1, min(previous.width, region.width))
-            let verticalGap = max(0, region.y - (previous.y + previous.height))
-            let closeEnough = verticalGap <= max(14, max(previous.height, region.height) * 1.35)
-            guard overlapRatio >= 0.28, closeEnough else {
-                merged.append(region)
-                continue
-            }
-            let minX = min(previous.x, region.x)
-            let minY = min(previous.y, region.y)
-            let maxX = max(previous.x + previous.width, region.x + region.width)
-            let maxY = max(previous.y + previous.height, region.y + region.height)
-            merged[merged.count - 1] = BrokerRegion(
-                id: previous.id,
-                x: minX,
-                y: minY,
-                width: maxX - minX,
-                height: maxY - minY,
-                rotation: nil,
-                source: previous.source + region.source,
-                translation: "",
-                confidence: min(previous.confidence ?? 0, region.confidence ?? 0)
-            )
+
+        // Vision can return both a whole phrase and its component lines. Remove
+        // those duplicates before clustering so one speech bubble is translated once.
+        cleaned.sort {
+            let leftArea = $0.width * $0.height
+            let rightArea = $1.width * $1.height
+            if leftArea != rightArea { return leftArea > rightArea }
+            return ($0.confidence ?? 0) > ($1.confidence ?? 0)
         }
-        return merged
+        var unique: [BrokerRegion] = []
+        for region in cleaned {
+            let duplicate = unique.contains { existing in
+                let overlap = overlapArea(existing, region)
+                let smallerArea = max(1, min(existing.width * existing.height, region.width * region.height))
+                let textMatches = existing.source == region.source ||
+                    existing.source.contains(region.source) ||
+                    region.source.contains(existing.source)
+                return textMatches && overlap / smallerArea >= 0.48
+            }
+            if !duplicate { unique.append(region) }
+        }
+
+        var clusters = unique.map { [$0] }
+        var changed = true
+        while changed {
+            changed = false
+            outer: for leftIndex in clusters.indices {
+                for rightIndex in clusters.indices where rightIndex > leftIndex {
+                    let leftBounds = unionRegion(clusters[leftIndex])
+                    let rightBounds = unionRegion(clusters[rightIndex])
+                    guard shouldMergeDialogue(
+                        leftBounds,
+                        rightBounds,
+                        pageWidth: pageWidth,
+                        pageHeight: pageHeight
+                    ) else { continue }
+                    clusters[leftIndex].append(contentsOf: clusters[rightIndex])
+                    clusters.remove(at: rightIndex)
+                    changed = true
+                    break outer
+                }
+            }
+        }
+
+        return sorted(clusters.map { cluster in
+            let bounds = unionRegion(cluster)
+            let ordered = cluster.sorted {
+                let rowTolerance = max(6, min($0.height, $1.height) * 0.7)
+                if abs($0.y - $1.y) > rowTolerance { return $0.y < $1.y }
+                return $0.x < $1.x
+            }
+            var parts: [String] = []
+            for item in ordered where !parts.contains(item.source) {
+                if parts.contains(where: { $0.contains(item.source) }) { continue }
+                parts.removeAll { item.source.contains($0) }
+                parts.append(item.source)
+            }
+            return BrokerRegion(
+                id: ordered.first?.id ?? "vision-\(UUID().uuidString)",
+                x: bounds.x,
+                y: bounds.y,
+                width: bounds.width,
+                height: bounds.height,
+                rotation: nil,
+                source: parts.joined(),
+                translation: "",
+                confidence: ordered.map { $0.confidence ?? 0 }.reduce(0, +) / Double(max(ordered.count, 1))
+            )
+        }, pageHeight: pageHeight)
+    }
+
+    private func overlapArea(_ left: BrokerRegion, _ right: BrokerRegion) -> Double {
+        let width = max(0, min(left.x + left.width, right.x + right.width) - max(left.x, right.x))
+        let height = max(0, min(left.y + left.height, right.y + right.height) - max(left.y, right.y))
+        return width * height
+    }
+
+    private func unionRegion(_ regions: [BrokerRegion]) -> BrokerRegion {
+        guard let first = regions.first else {
+            return BrokerRegion(id: "", x: 0, y: 0, width: 0, height: 0, rotation: nil, source: "", translation: "", confidence: 0)
+        }
+        let minX = regions.map(\.x).min() ?? first.x
+        let minY = regions.map(\.y).min() ?? first.y
+        let maxX = regions.map { $0.x + $0.width }.max() ?? (first.x + first.width)
+        let maxY = regions.map { $0.y + $0.height }.max() ?? (first.y + first.height)
+        return BrokerRegion(
+            id: first.id,
+            x: minX,
+            y: minY,
+            width: maxX - minX,
+            height: maxY - minY,
+            rotation: nil,
+            source: "",
+            translation: "",
+            confidence: first.confidence
+        )
+    }
+
+    private func shouldMergeDialogue(
+        _ left: BrokerRegion,
+        _ right: BrokerRegion,
+        pageWidth: Double,
+        pageHeight: Double
+    ) -> Bool {
+        let horizontalOverlap = max(0, min(left.x + left.width, right.x + right.width) - max(left.x, right.x))
+        let verticalOverlap = max(0, min(left.y + left.height, right.y + right.height) - max(left.y, right.y))
+        let horizontalRatio = horizontalOverlap / max(1, min(left.width, right.width))
+        let verticalRatio = verticalOverlap / max(1, min(left.height, right.height))
+        let horizontalGap = max(0, max(left.x, right.x) - min(left.x + left.width, right.x + right.width))
+        let verticalGap = max(0, max(left.y, right.y) - min(left.y + left.height, right.y + right.height))
+        let sameColumn = horizontalRatio >= 0.24 &&
+            verticalGap <= max(10, min(left.height, right.height) * 1.25)
+        let sameRow = verticalRatio >= 0.34 &&
+            horizontalGap <= max(10, min(left.width, right.width) * 0.8)
+        let substantialOverlap = overlapArea(left, right) /
+            max(1, min(left.width * left.height, right.width * right.height)) >= 0.42
+
+        let minX = min(left.x, right.x)
+        let minY = min(left.y, right.y)
+        let maxX = max(left.x + left.width, right.x + right.width)
+        let maxY = max(left.y + left.height, right.y + right.height)
+        let unionWidth = maxX - minX
+        let unionHeight = maxY - minY
+        let bubbleSized = unionWidth <= pageWidth * 0.38 && unionHeight <= pageHeight * 0.22
+        return bubbleSized && (substantialOverlap || sameColumn || sameRow)
     }
 
     private func isSiteWatermark(_ text: String) -> Bool {
         [
             "包子漫画", "包子漫畫", "本漫画", "本漫畫", "免费漫画", "免費漫畫",
             "更多免费", "更多免費", "请访问", "請訪問", "收集整理", "搜集整理",
+            "最新免费", "最新免費", "包子", "漫画", "漫畫", "免費", "访问", "訪問",
+            "baozimh", "BAOZIMH", "www.baozi",
         ].contains { text.contains($0) }
     }
 
@@ -800,6 +926,7 @@ private struct ReadingHistoryEntry: Codable, Identifiable {
 private final class ReaderSettingsStore {
     static let shared = ReaderSettingsStore()
     private let settingsKey = "ComicSubReaderSettings.v1"
+    private let automaticResearchMigrationKey = "MangaSubAutomaticResearch.v2"
     private let tokenKey = "com.tienle.comicsub.reader.auth-token"
 
     func load() -> ReaderSettings {
@@ -807,14 +934,22 @@ private final class ReaderSettingsStore {
               let settings = try? JSONDecoder().decode(ReaderSettings.self, from: data) else {
             return ReaderSettings()
         }
+        var migrated = settings
+        var didMigrate = false
         // Migration from builds that required a manually typed broker URL.
-        if settings.endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            var migrated = settings
+        if migrated.endpoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             migrated.endpoint = ReaderSettings().endpoint
-            save(migrated)
-            return migrated
+            didMigrate = true
         }
-        return settings
+        // Terminology research is automatic for normal sessions. It sends only
+        // the series title and target language; Private Session still disables it.
+        if !UserDefaults.standard.bool(forKey: automaticResearchMigrationKey) {
+            migrated.externalResearchAllowed = true
+            UserDefaults.standard.set(true, forKey: automaticResearchMigrationKey)
+            didMigrate = true
+        }
+        if didMigrate { save(migrated) }
+        return migrated
     }
 
     func save(_ settings: ReaderSettings) {
@@ -1112,20 +1247,27 @@ private enum ReaderBridge {
         return ranked[0] && ranked[0].area > 0 ? idFor(ranked[0].image) : null;
       };
       const layers = new Map();
+      const anchors = new Map();
       const ensureLayer = id => {
         if (layers.has(id)) return layers.get(id);
         const layer = document.createElement('div');
+        // Absolute document coordinates make overlays move with the page itself.
+        // A fixed layer updated from scroll events visibly lags behind on iPhone.
         layer.dataset.comicSubLayer = id; layer.style.cssText = 'position:absolute;z-index:2147483000;pointer-events:none;overflow:hidden;';
-        document.body.append(layer); layers.set(id, layer); return layer;
+        document.documentElement.append(layer); layers.set(id, layer); return layer;
       };
       const layout = (id, index, sourceURL) => {
-        const image = imageFor(id, index, sourceURL), layer = layers.get(id); if (!image || !layer) return null;
+        const saved = anchors.get(id) || {};
+        const resolvedIndex = Number.isInteger(index) ? index : saved.index;
+        const resolvedURL = sourceURL || saved.sourceURL;
+        const image = imageFor(id, resolvedIndex, resolvedURL), layer = layers.get(id); if (!image || !layer) return null;
         const rect = image.getBoundingClientRect();
         Object.assign(layer.style, { left: `${rect.left + scrollX}px`, top: `${rect.top + scrollY}px`, width: `${rect.width}px`, height: `${rect.height}px` });
         return { image, layer, rect };
       };
       const targetFor = (id, index, sourceURL) => {
         if (!imageFor(id, index, sourceURL)) return null;
+        anchors.set(id, { index, sourceURL });
         ensureLayer(id);
         return layout(id, index, sourceURL);
       };
@@ -1152,35 +1294,36 @@ private enum ReaderBridge {
           width, height, rotation: region.rotation || 0
         };
       };
-      const separateOverlaps = boxes => {
-        for (let pass = 0; pass < 3; pass += 1) {
-          for (let i = 0; i < boxes.length; i += 1) for (let j = i + 1; j < boxes.length; j += 1) {
-            const a = boxes[i], b = boxes[j];
-            const overlapX = Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x);
-            const overlapY = Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y);
-            if (overlapX <= 2 || overlapY <= 2) continue;
-            const centerAX = a.x + a.width / 2, centerBX = b.x + b.width / 2;
-            const centerAY = a.y + a.height / 2, centerBY = b.y + b.height / 2;
-            const horizontal = overlapX / Math.max(1, Math.min(a.width, b.width)) <
-              overlapY / Math.max(1, Math.min(a.height, b.height));
-            if (horizontal) {
-              const split = (centerAX + centerBX) / 2;
-              const left = centerAX <= centerBX ? a : b, right = centerAX <= centerBX ? b : a;
-              left.width = Math.max(8, split - 2 - left.x);
-              const rightEdge = right.x + right.width;
-              right.x = Math.min(rightEdge - 8, split + 2);
-              right.width = Math.max(8, rightEdge - right.x);
-            } else {
-              const split = (centerAY + centerBY) / 2;
-              const upper = centerAY <= centerBY ? a : b, lower = centerAY <= centerBY ? b : a;
-              upper.height = Math.max(8, split - 2 - upper.y);
-              const lowerEdge = lower.y + lower.height;
-              lower.y = Math.min(lowerEdge - 8, split + 2);
-              lower.height = Math.max(8, lowerEdge - lower.y);
-            }
+      const joinUniqueText = (left, right) => {
+        const a = String(left || '').trim(), b = String(right || '').trim();
+        if (!a) return b; if (!b || a === b || a.includes(b)) return a; if (b.includes(a)) return b;
+        return `${a} ${b}`;
+      };
+      const coalesceRegions = (regions, page) => {
+        const values = regions.filter(region => String(region.translation || '').trim()).map(region => ({ ...region }));
+        let changed = true;
+        while (changed) {
+          changed = false;
+          outer: for (let i = 0; i < values.length; i += 1) for (let j = i + 1; j < values.length; j += 1) {
+            const a = values[i], b = values[j];
+            const overlapX = Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x));
+            const overlapY = Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
+            const overlapArea = overlapX * overlapY;
+            const overlapRatio = overlapArea / Math.max(1, Math.min(a.width * a.height, b.width * b.height));
+            const minX = Math.min(a.x, b.x), minY = Math.min(a.y, b.y);
+            const maxX = Math.max(a.x + a.width, b.x + b.width), maxY = Math.max(a.y + a.height, b.y + b.height);
+            const bubbleSized = maxX - minX <= page.width * .38 && maxY - minY <= page.height * .22;
+            if (!bubbleSized || overlapRatio < .55) continue;
+            values[i] = {
+              ...a, x: minX, y: minY, width: maxX - minX, height: maxY - minY,
+              source: joinUniqueText(a.source, b.source),
+              translation: joinUniqueText(a.translation, b.translation),
+              confidence: Math.max(a.confidence || 0, b.confidence || 0)
+            };
+            values.splice(j, 1); changed = true; break outer;
           }
         }
-        return boxes;
+        return values.sort((a, b) => a.y - b.y || a.x - b.x);
       };
       const place = (node, box) => {
         Object.assign(node.style, {
@@ -1190,9 +1333,9 @@ private enum ReaderBridge {
         });
       };
       const fitText = node => {
-        let size = Math.min(13, Math.max(10, node.clientHeight * .3));
+        let size = Math.min(12.5, Math.max(8.5, Math.min(node.clientHeight * .28, node.clientWidth * .11)));
         node.style.fontSize = `${size}px`;
-        while (size > 9 && (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth)) {
+        while (size > 8 && (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth)) {
           size -= .5; node.style.fontSize = `${size}px`;
         }
       };
@@ -1204,11 +1347,39 @@ private enum ReaderBridge {
       const applyRegions = (id, index, sourceURL, regions, page, semanticOnly) => {
         const target = targetFor(id, index, sourceURL); if (!target) return false;
         if (!semanticOnly) target.layer.replaceChildren();
-        const boxes = separateOverlaps(regions.map(region => geometryFor(region, page, target.rect, !semanticOnly)));
-        regions.forEach((region, index) => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, boxes[index]); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:2px;background:rgba(255,253,245,.96);color:#17130e;border-radius:4px;text-align:center;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.08;overflow:hidden;word-break:break-word;'; target.layer.append(node); if (!semanticOnly) fitText(node); }); return true;
+        const displayRegions = coalesceRegions(regions, page);
+        const boxes = displayRegions.map(region => geometryFor(region, page, target.rect, !semanticOnly));
+        displayRegions.forEach((region, index) => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, boxes[index]); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:3px;background:rgba(255,253,245,.985);color:#17130e;border-radius:5px;text-align:center;font:600 12px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.08;overflow:hidden;word-break:break-word;'; target.layer.append(node); if (!semanticOnly) fitText(node); }); return true;
       };
       const relayout = () => layers.forEach((_, id) => layout(id));
-      window.__comicSubReaderBridge = { scan, currentCandidateId, scrollToCandidate: id => { const image = imageFor(id); if (image) image.scrollIntoView({ block: 'start', behavior: 'auto' }); return !!image; }, applyRendered, applyRegions, relayout, clear: id => { layers.get(id)?.remove(); layers.delete(id); } };
+      let relayoutFrame = 0;
+      const scheduleRelayout = () => {
+        if (relayoutFrame) return;
+        relayoutFrame = requestAnimationFrame(() => { relayoutFrame = 0; relayout(); });
+      };
+      const scrollToSourceFragment = fragment => {
+        const image = [...document.querySelectorAll('img, amp-img')].find(item => [
+          item.currentSrc, item.src, item.getAttribute('src'), item.getAttribute('data-src'),
+          item.getAttribute('data-original'), item.getAttribute('data-lazy-src')
+        ].some(value => String(value || '').includes(fragment)));
+        if (image) image.scrollIntoView({ block: 'start', behavior: 'auto' });
+        return !!image;
+      };
+      const alignmentReport = () => {
+        let maxError = 0, count = 0;
+        layers.forEach((layer, id) => {
+          const saved = anchors.get(id) || {};
+          const image = imageFor(id, saved.index, saved.sourceURL);
+          if (!image) return;
+          const imageRect = image.getBoundingClientRect(), layerRect = layer.getBoundingClientRect();
+          maxError = Math.max(maxError,
+            Math.abs(imageRect.left - layerRect.left), Math.abs(imageRect.top - layerRect.top),
+            Math.abs(imageRect.width - layerRect.width), Math.abs(imageRect.height - layerRect.height));
+          count += 1;
+        });
+        return { count, maxError };
+      };
+      window.__comicSubReaderBridge = { scan, currentCandidateId, scrollToCandidate: id => { const image = imageFor(id); if (image) image.scrollIntoView({ block: 'start', behavior: 'auto' }); return !!image; }, scrollToSourceFragment, applyRendered, applyRegions, relayout, alignmentReport, clear: id => { layers.get(id)?.remove(); layers.delete(id); anchors.delete(id); } };
       const belongsToReaderLayer = node => node?.nodeType === Node.ELEMENT_NODE &&
         (node.matches?.('[data-comic-sub-layer]') || node.closest?.('[data-comic-sub-layer]'));
       const isReaderMutation = mutation => {
@@ -1217,11 +1388,14 @@ private enum ReaderBridge {
         return changed.length > 0 && changed.every(belongsToReaderLayer);
       };
       new MutationObserver(mutations => {
-        if (mutations.some(mutation => !isReaderMutation(mutation))) scan();
+        if (mutations.some(mutation => !isReaderMutation(mutation))) {
+          scan();
+          scheduleRelayout();
+        }
       }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'data-src', 'data-original', 'data-lazy-src'] });
       addEventListener('load', scan, true);
       addEventListener('scroll', announceAnchor, { passive: true });
-      addEventListener('resize', relayout, { passive: true });
+      addEventListener('resize', scheduleRelayout, { passive: true });
       setTimeout(scan, 350);
       setTimeout(scan, 1500);
     })();
@@ -1247,16 +1421,20 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private var glossarySnapshots: [String: GlossarySnapshot] = [:]
     private var inMemoryContinuity: [String: [SeriesTerm]] = [:]
     private var privateSeriesConsents: [String: SeriesResearchConsent] = [:]
-    private var consentPromptInFlight = Set<String>()
     private var currentAnchor: (id: String?, index: Int, ratio: Double, scrollRatio: Double) = (nil, 0, 0, 0)
     private var resumeURL: String?
     private var saveTimer: Timer?
     private var isTranslatedSession = false
+    private var translatedCandidateIDs = Set<String>()
     private var navigationID = "navigation-\(UUID().uuidString)"
     private var activeJobIDs = Set<String>()
     private var activeBroker: BrokerClient?
     private var translationTask: Task<Void, Never>?
     private weak var translationHost: UIViewController?
+    #if DEBUG
+    private var qaAutoTranslationStarted = false
+    private var qaAutoScrollPerformed = false
+    #endif
     private var deviceID: String {
         let key = "ComicSubReaderDeviceID.v1"
         if let existing = UserDefaults.standard.string(forKey: key) { return existing }
@@ -1291,11 +1469,16 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
            !bootstrapToken.isEmpty {
             settingsStore.saveToken(bootstrapToken)
         }
+        switch ProcessInfo.processInfo.environment["COMIC_SUB_QA_ROUTE"] {
+        case "local-stub": settings.route = .onDevice
+        case "remote": settings.route = .managedCloud
+        default: break
+        }
         let developerStartURL = ProcessInfo.processInfo.environment["COMIC_SUB_START_URL"].flatMap(URL.init(string:))
         #else
         let developerStartURL: URL? = nil
         #endif
-        title = "Comic Sub"
+        title = "Manga Sub"
         configureWebView(privateSession: settings.privateSession, preserving: nil)
         configureChrome()
         configureHomeCard()
@@ -1478,7 +1661,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     private func applyAppLanguage() {
-        title = "Comic Sub"
+        title = "Manga Sub"
         webView.accessibilityLabel = uiText("Comic page", "Trang truyện")
         addressField.placeholder = uiText("Paste chapter link", "Dán link chapter")
         addressField.accessibilityLabel = uiText("Comic page address", "Địa chỉ trang truyện")
@@ -1494,8 +1677,8 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         )
         homeTitleLabel.text = uiText("Read comics. Translate in place.", "Đọc truyện, dịch đúng chỗ")
         homeDetailLabel.text = uiText(
-            "Paste a chapter URL. Comic Sub saves your reading position unless you use a Private Session.",
-            "Dán URL chapter. Comic Sub chỉ lưu vị trí đọc khi bạn không dùng Phiên riêng tư."
+            "Paste a chapter URL. Manga Sub saves your reading position unless you use a Private Session.",
+            "Dán URL chapter. Manga Sub chỉ lưu vị trí đọc khi bạn không dùng Phiên riêng tư."
         )
         pasteButton.configuration?.title = uiText("Paste Comic Link", "Dán link truyện")
         historyButton.configuration?.title = uiText("Continue Reading", "Đọc tiếp")
@@ -1543,6 +1726,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         currentAnchor = (nil, 0, 0, 0)
         resumeURL = nil
         isTranslatedSession = false
+        translatedCandidateIDs.removeAll()
         updateRouteStatus(uiText("Opening page safely…", "Đang mở trang an toàn…"))
         webView.load(URLRequest(url: url))
     }
@@ -1551,7 +1735,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         guard !candidates.isEmpty else {
             showAlert(
                 title: uiText("No Comic Images Yet", "Chưa thấy ảnh truyện"),
-                message: uiText("Comic Sub is looking for large images on this page. Canvas, DRM, or reader-blocked images cannot be acquired automatically.", "Comic Sub đang tìm ảnh lớn trong trang. Ảnh canvas, DRM hoặc reader chặn truy cập sẽ không được lấy tự động.")
+                message: uiText("Manga Sub is looking for large images on this page. Canvas, DRM, or reader-blocked images cannot be acquired automatically.", "Manga Sub đang tìm ảnh lớn trong trang. Ảnh canvas, DRM hoặc reader chặn truy cập sẽ không được lấy tự động.")
             )
             return
         }
@@ -1560,8 +1744,8 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             message: uiText("\(candidates.count) images are currently loaded. Images that appear later wait for a new batch and are never charged automatically.", "\(candidates.count) ảnh đang tải trong trang này. Ảnh xuất hiện sau sẽ chờ một đợt mới và không tự tính phí."),
             preferredStyle: .actionSheet
         )
-        sheet.addAction(UIAlertAction(title: uiText("Translate Current Section", "Dịch phần đang đọc"), style: .default) { _ in self.beginTranslation(scope: .visible) })
-        sheet.addAction(UIAlertAction(title: uiText("Translate All Loaded Images", "Dịch toàn bộ ảnh hiện có"), style: .default) { _ in self.showAllPreflight() })
+        sheet.addAction(UIAlertAction(title: uiText("Translate This Chapter · \(candidates.count) Images", "Dịch chương này · \(candidates.count) ảnh"), style: .default) { _ in self.showAllPreflight() })
+        sheet.addAction(UIAlertAction(title: uiText("Translate Visible Image Only", "Chỉ dịch ảnh đang nhìn"), style: .default) { _ in self.beginTranslation(scope: .visible) })
         sheet.addAction(UIAlertAction(title: uiText("Show Original Images", "Hiện ảnh gốc"), style: .default) { _ in self.updateRouteStatus(uiText("Original images are always preserved in the WebView.", "Ảnh gốc luôn được giữ nguyên trong WebView.")) })
         if !activeJobIDs.isEmpty {
             sheet.addAction(UIAlertAction(title: uiText("Cancel Running Job", "Huỷ job đang chạy"), style: .destructive) { _ in self.cancelActiveTranslation() })
@@ -1604,6 +1788,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     private func startTranslation(_ selected: [WebCandidate]) {
+        let selected = canonicalCandidates(selected)
         guard !selected.isEmpty else { return }
         cancelActiveTranslation(silent: true)
         isTranslatedSession = true
@@ -1617,6 +1802,13 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
 
     private func translate(_ selected: [WebCandidate], navigationID expectedNavigationID: String) async {
         do {
+            let selected = canonicalCandidates(selected)
+            guard !selected.isEmpty else {
+                throw BrokerError.request(uiText(
+                    "No unique comic images remain after validating this page.",
+                    "Không còn ảnh truyện duy nhất nào sau khi kiểm tra trang."
+                ))
+            }
             guard let pageURL = webView.url, pageURL.scheme?.hasPrefix("http") == true else { throw BrokerError.request(uiText("The comic page does not have a valid URL.", "Trang truyện chưa có URL hợp lệ.")) }
             let isClientDevice = try await routeContract()
             let series = seriesContext(for: pageURL)
@@ -1628,6 +1820,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                     navigationID: expectedNavigationID
                 )
                 saveCurrentProgress(force: true)
+                await runQAPostTranslationScrollCheck()
                 activeJobIDs.removeAll(); activeBroker = nil; translationTask = nil
                 return
             }
@@ -1684,7 +1877,8 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                     guard navigationID == expectedNavigationID else { throw BrokerError.cancelled }
                     let settled = try await pollSettled(client: client, jobID: job.jobId)
                     guard settled.state == "SETTLED" else { throw BrokerError.request(uiText("The job ended in state \(settled.state).", "Job kết thúc ở trạng thái \(settled.state).")) }
-                    let result = try await client.result(job.jobId)
+                    var result = try await client.result(job.jobId)
+                    result.overlayRegions.removeAll(where: isLikelyPublisherWatermark)
                     try verifyReceipt(result.modelReceipt, clientDevice: false)
                     try await attachRegions(result, to: selected[offset])
                     recordSuccessfulTranslation(result, series: series, client: client)
@@ -1696,6 +1890,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                 }
             }
             saveCurrentProgress(force: true)
+            await runQAPostTranslationScrollCheck()
         } catch is CancellationError {
             updateRouteStatus(uiText("Translation cancelled. Original images remain visible.", "Đã huỷ bản dịch. Ảnh gốc vẫn hiển thị."))
         } catch let error as BrokerError {
@@ -1710,6 +1905,23 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             showAlert(title: uiText("Translation Incomplete", "Bản dịch chưa hoàn tất"), message: error.localizedDescription)
         }
         activeJobIDs.removeAll(); activeBroker = nil; translationTask = nil
+    }
+
+    private func runQAPostTranslationScrollCheck() async {
+        #if DEBUG
+        let environment = ProcessInfo.processInfo.environment
+        guard let fragment = environment["COMIC_SUB_QA_POST_SCROLL_FRAGMENT"],
+              !fragment.isEmpty else { return }
+        _ = try? await webView.evaluateJavaScript(
+            "window.__comicSubReaderBridge && window.__comicSubReaderBridge.scrollToSourceFragment(\(javascriptString(fragment)))"
+        )
+        try? await Task.sleep(nanoseconds: 750_000_000)
+        if let report = try? await webView.evaluateJavaScript(
+            "window.__comicSubReaderBridge && window.__comicSubReaderBridge.alignmentReport()"
+        ) {
+            print("[MangaSubQA] post-scroll overlay alignment: \(report)")
+        }
+        #endif
     }
 
     private func translateFullyOnDevice(
@@ -1759,31 +1971,79 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             preparedPages.append(OnDevicePreparedPage(candidate: candidate, recognized: recognized))
         }
 
-        var pendingLocations: [OnDevicePendingRegion] = []
-        var pendingTexts: [String] = []
+        var pagePlans: [(pageIndex: Int, regionIndices: [Int], sources: [String])] = []
         for pageIndex in preparedPages.indices {
+            var regionIndices: [Int] = []
+            var sources: [String] = []
             for regionIndex in preparedPages[pageIndex].recognized.regions.indices
             where preparedPages[pageIndex].recognized.regions[regionIndex].translation.isEmpty {
-                pendingLocations.append(OnDevicePendingRegion(pageIndex: pageIndex, regionIndex: regionIndex))
-                pendingTexts.append(preparedPages[pageIndex].recognized.regions[regionIndex].source)
+                regionIndices.append(regionIndex)
+                sources.append(preparedPages[pageIndex].recognized.regions[regionIndex].source)
+            }
+            if !sources.isEmpty {
+                pagePlans.append((pageIndex: pageIndex, regionIndices: regionIndices, sources: sources))
             }
         }
-        if !pendingTexts.isEmpty {
+        if !pagePlans.isEmpty {
+            let regionCount = pagePlans.reduce(0) { $0 + $1.sources.count }
             updateRouteStatus(uiText(
-                "Translating \(pendingTexts.count) text regions from \(preparedPages.count) images in one on-device batch…",
-                "Đang dịch \(pendingTexts.count) vùng chữ từ \(preparedPages.count) ảnh trong một batch trên thiết bị…"
+                "Translating \(regionCount) dialogue regions with page context from \(preparedPages.count) images…",
+                "Đang dịch \(regionCount) vùng thoại có ngữ cảnh trang từ \(preparedPages.count) ảnh…"
             ))
-            let translated = try await translateOnDevice(pendingTexts)
-            guard translated.count == pendingLocations.count else {
+            let contextualPayloads = pagePlans.map { plan in
+                plan.sources.enumerated().map { offset, source in
+                    "【\(offset + 1)】\(source)"
+                }.joined(separator: "\n")
+            }
+            let translatedPages = try await translateOnDevice(contextualPayloads)
+            guard translatedPages.count == pagePlans.count else {
                 throw BrokerError.request(uiText(
-                    "Apple Translation returned fewer text regions than expected.",
-                    "Apple Translation trả thiếu vùng văn bản."
+                    "Apple Translation returned fewer pages than expected.",
+                    "Apple Translation trả thiếu trang."
                 ))
             }
-            for (translationIndex, location) in pendingLocations.enumerated() {
-                let source = preparedPages[location.pageIndex].recognized.regions[location.regionIndex].source
-                preparedPages[location.pageIndex].recognized.regions[location.regionIndex].translation =
-                    resolvedLocalTranslation(source: source, translated: translated[translationIndex])
+
+            var fallbackLocations: [OnDevicePendingRegion] = []
+            var fallbackTexts: [String] = []
+            for (planIndex, plan) in pagePlans.enumerated() {
+                if let contextual = parseContextualTranslations(
+                    translatedPages[planIndex],
+                    expectedCount: plan.sources.count
+                ) {
+                    for offset in plan.regionIndices.indices {
+                        let regionIndex = plan.regionIndices[offset]
+                        let source = plan.sources[offset]
+                        preparedPages[plan.pageIndex].recognized.regions[regionIndex].translation =
+                            resolvedLocalTranslation(source: source, translated: contextual[offset])
+                    }
+                } else {
+                    for offset in plan.regionIndices.indices {
+                        fallbackLocations.append(OnDevicePendingRegion(
+                            pageIndex: plan.pageIndex,
+                            regionIndex: plan.regionIndices[offset]
+                        ))
+                        fallbackTexts.append(plan.sources[offset])
+                    }
+                }
+            }
+
+            // Apple normally preserves the numbered page markers. If a language
+            // pair rewrites them, retain correctness by retrying only that page's
+            // regions individually instead of assigning dialogue to the wrong box.
+            if !fallbackTexts.isEmpty {
+                let fallbackTranslations = try await translateOnDevice(fallbackTexts)
+                guard fallbackTranslations.count == fallbackLocations.count else {
+                    throw BrokerError.request(uiText(
+                        "Apple Translation returned fewer dialogue regions than expected.",
+                        "Apple Translation trả thiếu vùng thoại."
+                    ))
+                }
+                for offset in fallbackLocations.indices {
+                    let location = fallbackLocations[offset]
+                    let source = preparedPages[location.pageIndex].recognized.regions[location.regionIndex].source
+                    preparedPages[location.pageIndex].recognized.regions[location.regionIndex].translation =
+                        resolvedLocalTranslation(source: source, translated: fallbackTranslations[offset])
+                }
             }
         }
 
@@ -1820,15 +2080,20 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     private func routeContract() async throws -> Bool {
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["COMIC_SUB_QA_ROUTE"] == "local-stub" {
+            return true
+        }
+        #endif
         switch settings.route {
         case .automatic:
-            let state = await translationCapability.check(source: settings.sourceLanguage, target: settings.targetLanguage)
-            if state == .installed {
-                return true
-            }
             if !settingsStore.loadToken().isEmpty,
                BrokerEndpointPolicy.allows(brokerEndpoint, discovered: discoveredBroker) {
                 return false
+            }
+            let state = await translationCapability.check(source: settings.sourceLanguage, target: settings.targetLanguage)
+            if state == .installed {
+                return true
             }
             if state == .downloadable { presentLanguageDownload() }
             throw BrokerError.request(state.message)
@@ -1870,6 +2135,48 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             .replacingOccurrences(of: " …", with: "…")
     }
 
+    private func isLikelyPublisherWatermark(_ region: BrokerRegion) -> Bool {
+        let content = "\(region.source)\n\(region.translation)".lowercased()
+        let phrases = [
+            "本漫画由", "本漫畫由", "收集整理", "搜集整理",
+            "更多免费漫画", "更多免費漫畫", "最新免费漫画", "最新免費漫畫",
+            "请访问", "請訪問", "baozimh", "baozi manhua",
+            "truyện tranh này được thu thập", "xem thêm nhiều truyện tranh",
+        ]
+        if phrases.contains(where: content.contains) { return true }
+        if content.contains("www.") || content.contains("http://") || content.contains("https://") {
+            return true
+        }
+        return false
+    }
+
+    private func parseContextualTranslations(_ text: String, expectedCount: Int) -> [String]? {
+        guard expectedCount > 0 else { return [] }
+        let pattern = #"【\s*(\d+)\s*】"#
+        guard let expression = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(text.startIndex..<text.endIndex, in: text)
+        let matches = expression.matches(in: text, range: range)
+        guard matches.count == expectedCount else { return nil }
+        var values = Array(repeating: "", count: expectedCount)
+        for (matchIndex, match) in matches.enumerated() {
+            guard match.numberOfRanges > 1,
+                  let numberRange = Range(match.range(at: 1), in: text),
+                  let number = Int(text[numberRange]),
+                  (1...expectedCount).contains(number),
+                  let start = Range(match.range, in: text)?.upperBound else { return nil }
+            let end: String.Index
+            if matchIndex + 1 < matches.count,
+               let next = Range(matches[matchIndex + 1].range, in: text) {
+                end = next.lowerBound
+            } else {
+                end = text.endIndex
+            }
+            values[number - 1] = String(text[start..<end])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        return values.allSatisfy { !$0.isEmpty } ? values : nil
+    }
+
     private func containsCJK(_ text: String) -> Bool {
         text.unicodeScalars.contains {
             (0x3040...0x30FF).contains($0.value) ||
@@ -1879,6 +2186,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     private func makeSnapshot(snapshotID: String, candidates: [WebCandidate], pageURL: URL) -> [String: Any] {
+        let candidates = canonicalCandidates(candidates)
         let pageOrigin = origin(for: pageURL)
         return [
             "snapshotId": snapshotID,
@@ -1897,6 +2205,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     private func makeBatchRequest(snapshotID: String, candidates: [WebCandidate], clientDevice: Bool, glossary: GlossarySnapshot) -> [String: Any] {
+        let candidates = canonicalCandidates(candidates)
         let request: [String: Any]
         if clientDevice {
             request = ["locus": "on-device", "profile": "balanced", "provider": "apple", "model": "apple-translation", "allowedFallbacks": []]
@@ -1913,6 +2222,23 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             "privacyPolicyVersion": settings.privateSession ? "private-v1" : "reader-v1",
             "budget": ["currency": "USD", "maxMicros": [.automatic, .managedCloud].contains(settings.route) ? 500_000 : 0],
         ]
+    }
+
+    private func canonicalCandidates(_ values: [WebCandidate]) -> [WebCandidate] {
+        var seenIDs = Set<String>()
+        var seenURLs = Set<String>()
+        return values.sorted { left, right in
+            if left.index != right.index { return left.index < right.index }
+            return left.top < right.top
+        }.filter { candidate in
+            let normalizedURL = URL(string: candidate.url)?.absoluteString ?? candidate.url
+            guard !candidate.id.isEmpty,
+                  seenIDs.insert(candidate.id).inserted,
+                  seenURLs.insert(normalizedURL).inserted else {
+                return false
+            }
+            return true
+        }
     }
 
     // The series key is intentionally derived on-device from a stable work key
@@ -2007,11 +2333,14 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     private func latestSeriesGlossary(client: BrokerClient, series: SeriesContext) async throws -> GlossarySnapshot {
-        // Local/curated continuity is useful on the very first page. A missing
-        // research decision is therefore bootstrapped as declined; only the
-        // explicit AI action below grants outbound title research.
-        let consent = consent(for: series) ?? .declined
-        let bootstrap = try await client.bootstrapSeries(seriesBootstrapPayload(series, consent: consent))
+        let automaticConsent: SeriesResearchConsent =
+            !settings.privateSession && settings.externalResearchAllowed ? .granted : .declined
+        let storedConsent = consent(for: series)
+        let researchConsent = storedConsent ?? automaticConsent
+        if !settings.privateSession, storedConsent == nil {
+            seriesConsentStore.save(researchConsent, for: series.id)
+        }
+        let bootstrap = try await client.bootstrapSeries(seriesBootstrapPayload(series, consent: researchConsent))
         let latest = (try? await client.seriesGlossary(series.id)) ?? bootstrap
         glossarySnapshots[series.id] = latest.glossarySnapshot
         mergeContinuity(latest.glossarySnapshot.entries.map {
@@ -2152,27 +2481,14 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                   !region.translation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
             return SeriesTerm(sourceTerm: region.source, targetTerm: region.translation, confidence: region.confidence ?? 0.8)
         }, into: series)
-        guard consent(for: series) == nil, !consentPromptInFlight.contains(series.id) else { return }
-        consentPromptInFlight.insert(series.id)
+        guard consent(for: series) == nil else { return }
+        let decision: SeriesResearchConsent =
+            !settings.privateSession && settings.externalResearchAllowed ? .granted : .declined
         if settings.privateSession {
-            privateSeriesConsents[series.id] = .declined
-            return
+            privateSeriesConsents[series.id] = decision
+        } else {
+            saveSeriesConsent(decision, series: series, client: client)
         }
-        let alert = UIAlertController(
-            title: uiText("Remember Names for This Series?", "Nhớ tên riêng cho bộ này?"),
-            message: uiText(
-                "Comic Sub will keep translated names consistent from the next page. You may allow public research using only the series title and target language; chapter URLs, images, OCR, and reading history are never sent.",
-                "Từ trang sau, Comic Sub sẽ tự giữ cách gọi đã dịch. Bạn có thể cho phép tra cứu công khai theo tên bộ truyện và ngôn ngữ đích; không gửi URL chapter, ảnh, OCR hay lịch sử đọc."
-            ),
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: uiText("Allow Research", "Cho phép tra cứu"), style: .default) { [weak self] _ in
-            self?.saveSeriesConsent(.granted, series: series, client: client)
-        })
-        alert.addAction(UIAlertAction(title: uiText("Keep On Device Only", "Chỉ dùng liên tục cục bộ"), style: .cancel) { [weak self] _ in
-            self?.saveSeriesConsent(.declined, series: series, client: client)
-        })
-        present(alert, animated: true)
     }
 
     private func saveSeriesConsent(_ decision: SeriesResearchConsent, series: SeriesContext, client: BrokerClient) {
@@ -2226,6 +2542,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         let regions = (try? JSONEncoder().encode(result.overlayRegions)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         let script = "window.__comicSubReaderBridge && window.__comicSubReaderBridge.applyRendered(\(javascriptString(candidate.id)), \(candidate.index), \(javascriptString(candidate.url)), \(javascriptString(assetURL.absoluteString)), \(javascriptString(label))) && window.__comicSubReaderBridge.applyRegions(\(javascriptString(candidate.id)), \(candidate.index), \(javascriptString(candidate.url)), \(regions), \(jsonObject(page)), true);"
         try await requireAttachedOverlay(script)
+        translatedCandidateIDs.insert(candidate.id)
     }
 
     private func attachRegions(_ result: BrokerResult, to candidate: WebCandidate) async throws {
@@ -2233,6 +2550,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         let page = ["width": result.page.width, "height": result.page.height]
         let script = "window.__comicSubReaderBridge && window.__comicSubReaderBridge.applyRegions(\(javascriptString(candidate.id)), \(candidate.index), \(javascriptString(candidate.url)), \(regions), \(jsonObject(page)), false);"
         try await requireAttachedOverlay(script)
+        translatedCandidateIDs.insert(candidate.id)
     }
 
     private func requireAttachedOverlay(_ script: String) async throws {
@@ -2267,6 +2585,26 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
 
     private func translateOnDevice(_ texts: [String]) async throws -> [String] {
         guard !texts.isEmpty else { return [] }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["COMIC_SUB_QA_ROUTE"] == "local-stub" {
+            let shortSounds = ["Rắc", "A!", "Hừ", "Ừm"]
+            let shortDialogue = ["Thành công.", "Không sao.", "Lấy nó ra.", "Đi thôi."]
+            return texts.enumerated().map { index, source in
+                if source.contains("时空之力") {
+                    return source.count < 8
+                        ? "Sức mạnh thời gian và không gian?"
+                        : "Đây là sức mạnh bí ẩn của thời gian và không gian!"
+                }
+                if source.count <= 2 { return shortSounds[index % shortSounds.count] }
+                if source.count <= 6 { return shortDialogue[index % shortDialogue.count] }
+                return [
+                    "Đúng vậy, đây là nguồn sức mạnh bí ẩn nhất.",
+                    "Ranh giới đã được khôi phục.",
+                    "Chúng ta hãy chia nhau đi kiểm tra.",
+                ][index % 3]
+            }
+        }
+        #endif
         #if canImport(Translation) && canImport(SwiftUI)
         guard #available(iOS 18.0, *) else { throw BrokerError.request(uiText("Apple Translation requires iOS 18 or later.", "Apple Translation cần iOS 18 trở lên.")) }
         if #available(iOS 26.0, *) {
@@ -2300,7 +2638,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private func presentLanguageDownload() {
         #if canImport(Translation) && canImport(SwiftUI)
         guard #available(iOS 18.0, *) else {
-            showAlert(title: uiText("Newer iOS Required", "Cần iOS mới hơn"), message: uiText("Apple Translation is available on iOS 18 or later. Comic Sub will not send the page to Cloud automatically.", "Apple Translation chỉ khả dụng từ iOS 18. Comic Sub sẽ không tự gửi trang lên Cloud."))
+            showAlert(title: uiText("Newer iOS Required", "Cần iOS mới hơn"), message: uiText("Apple Translation is available on iOS 18 or later. Manga Sub will not send the page to Cloud automatically.", "Apple Translation chỉ khả dụng từ iOS 18. Manga Sub sẽ không tự gửi trang lên Cloud."))
             return
         }
         let preparation = TranslationPreparationView(source: settings.sourceLanguage, target: settings.targetLanguage) { [weak self] success in
@@ -2313,7 +2651,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         host.modalPresentationStyle = .formSheet
         present(host, animated: true)
         #else
-        showAlert(title: uiText("Apple Translation Unavailable", "Không có Apple Translation"), message: uiText("Apple Translation is unavailable in this SDK. Comic Sub will not send the page to Cloud automatically.", "SDK này không có Apple Translation. Comic Sub sẽ không tự gửi trang lên Cloud."))
+        showAlert(title: uiText("Apple Translation Unavailable", "Không có Apple Translation"), message: uiText("Apple Translation is unavailable in this SDK. Manga Sub will not send the page to Cloud automatically.", "SDK này không có Apple Translation. Manga Sub sẽ không tự gửi trang lên Cloud."))
         #endif
     }
 
@@ -2384,6 +2722,11 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         let privacy = settings.privateSession ? uiText(" · Private", " · Riêng tư") : ""
         statusLabel.text = "  \(text)\(privacy)  "
         statusLabel.accessibilityValue = text
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["COMIC_SUB_QA_SCOPE"] != nil {
+            print("[MangaSubQA] \(text)")
+        }
+        #endif
     }
 
     private func currentRouteLabel() -> String {
@@ -2392,7 +2735,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         case .automatic: return uiText("\(target) · Automatic", "\(target) · Tự chọn")
         case .onDevice: return uiText("\(target) · On-device text", "\(target) · Văn bản trên thiết bị")
         case .privateServer: return uiText("\(target) · Private Server", "\(target) · Server riêng")
-        case .managedCloud: return "\(target) · Managed Cloud"
+        case .managedCloud: return "\(target) · Manga Sub Cloud"
         }
     }
 
@@ -2451,6 +2794,11 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         navigationID = "navigation-\(UUID().uuidString)"
         updateRouteStatus(uiText("Opening page…", "Đang mở trang…"))
         candidates = []
+        translatedCandidateIDs.removeAll()
+        #if DEBUG
+        qaAutoTranslationStarted = false
+        qaAutoScrollPerformed = false
+        #endif
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -2482,11 +2830,71 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             pageTitle = body["title"] as? String ?? pageTitle
             guard let raw = body["candidates"], let data = try? JSONSerialization.data(withJSONObject: raw),
                   let decoded = try? JSONDecoder().decode([WebCandidate].self, from: data) else { return }
-            candidates = decoded
-            updateRouteStatus(decoded.isEmpty
-                ? uiText("No eligible comic images found. Canvas/DRM may be unsupported.", "Chưa thấy ảnh truyện phù hợp. Canvas/DRM có thể không được hỗ trợ.")
-                : uiText("\(decoded.count) comic images ready · \(currentRouteLabel())", "\(decoded.count) ảnh truyện sẵn sàng · \(currentRouteLabel())"))
+            let uniqueCandidates = canonicalCandidates(decoded)
+            candidates = uniqueCandidates
+            if translationTask == nil {
+                if uniqueCandidates.isEmpty {
+                    updateRouteStatus(uiText(
+                        "No eligible comic images found. Canvas/DRM may be unsupported.",
+                        "Chưa thấy ảnh truyện phù hợp. Canvas/DRM có thể không được hỗ trợ."
+                    ))
+                } else if !translatedCandidateIDs.isEmpty {
+                    updateRouteStatus(uiText(
+                        "\(translatedCandidateIDs.count) translations visible · \(uniqueCandidates.count) images loaded · \(currentRouteLabel())",
+                        "\(translatedCandidateIDs.count) bản dịch đang hiện · \(uniqueCandidates.count) ảnh đã tải · \(currentRouteLabel())"
+                    ))
+                } else {
+                    updateRouteStatus(uiText(
+                        "\(uniqueCandidates.count) comic images ready · \(currentRouteLabel())",
+                        "\(uniqueCandidates.count) ảnh truyện sẵn sàng · \(currentRouteLabel())"
+                    ))
+                }
+            }
             resumeIfNeeded()
+            #if DEBUG
+            let environment = ProcessInfo.processInfo.environment
+            let qaSourceFragment = environment["COMIC_SUB_QA_IMAGE_FRAGMENT"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !qaAutoScrollPerformed, let qaSourceFragment, !qaSourceFragment.isEmpty {
+                webView.evaluateJavaScript(
+                    "window.__comicSubReaderBridge && window.__comicSubReaderBridge.scrollToSourceFragment(\(javascriptString(qaSourceFragment)))"
+                ) { [weak self] result, _ in
+                    guard let self, (result as? Bool) == true else { return }
+                    self.qaAutoScrollPerformed = true
+                }
+            }
+            let minimumCandidates = Int(environment["COMIC_SUB_QA_MIN_CANDIDATES"] ?? "4") ?? 4
+            if !qaAutoTranslationStarted,
+               let scope = environment["COMIC_SUB_QA_SCOPE"],
+               ["current", "all"].contains(scope),
+               (qaSourceFragment?.isEmpty != false || qaAutoScrollPerformed),
+               uniqueCandidates.count >= minimumCandidates {
+                qaAutoTranslationStarted = true
+                let requestedIndex = Int(environment["COMIC_SUB_QA_SCROLL_INDEX"] ?? "")
+                let expectedNavigationID = navigationID
+                Task { [weak self] in
+                    guard let self else { return }
+                    try? await Task.sleep(nanoseconds: 900_000_000)
+                    guard self.navigationID == expectedNavigationID else { return }
+                    var scrollTarget = requestedIndex.flatMap { requestedIndex in
+                        self.candidates.first(where: { $0.index == requestedIndex })
+                    }
+                    if let requestedIndex, scrollTarget == nil, self.candidates.indices.contains(requestedIndex) {
+                        scrollTarget = self.candidates[requestedIndex]
+                    }
+                    if let target = scrollTarget {
+                        _ = try? await self.webView.evaluateJavaScript(
+                            "window.__comicSubReaderBridge && window.__comicSubReaderBridge.scrollToCandidate(\(self.javascriptString(target.id)))"
+                        )
+                        try? await Task.sleep(nanoseconds: 500_000_000)
+                    }
+                    if scope == "all" {
+                        self.startTranslation(self.candidates)
+                    } else {
+                        self.beginTranslation(scope: .visible)
+                    }
+                }
+            }
+            #endif
         case "anchor":
             currentAnchor = (
                 body["id"] as? String,
@@ -2640,8 +3048,8 @@ private final class ReaderSettingsController: UITableViewController {
         let alert = UIAlertController(
             title: text("Research Series Names", "Tra cứu tên truyện"),
             message: text(
-                "When enabled, Comic Sub sends only the normalized series title and target language to approved public sources to find established character and place names. It never sends images, OCR, chapter URLs, or reading history.",
-                "Khi bật, Comic Sub chỉ có thể gửi tên truyện đã chuẩn hoá và ngôn ngữ đích tới nguồn đã kiểm duyệt để tìm cách gọi nhân vật/địa danh. Không gửi ảnh, OCR, URL chapter hay lịch sử đọc. Bạn có thể tắt hoặc xoá dữ liệu này bất cứ lúc nào."
+                "When enabled, Manga Sub sends only the normalized series title and target language to approved public sources to find established character and place names. It never sends images, OCR, chapter URLs, or reading history.",
+                "Khi bật, Manga Sub chỉ có thể gửi tên truyện đã chuẩn hoá và ngôn ngữ đích tới nguồn đã kiểm duyệt để tìm cách gọi nhân vật/địa danh. Không gửi ảnh, OCR, URL chapter hay lịch sử đọc. Bạn có thể tắt hoặc xoá dữ liệu này bất cứ lúc nào."
             ),
             preferredStyle: .alert
         )
@@ -2661,7 +3069,7 @@ private final class ReaderSettingsController: UITableViewController {
         let endpoint = brokerConnection
         let route: String
         switch settings.route {
-        case .automatic: route = text("Automatic: on-device first, configured broker fallback", "Tự chọn: ưu tiên trên thiết bị, fallback broker đã cấu hình")
+        case .automatic: route = text("Automatic: configured Manga Sub Cloud first, on-device private fallback", "Tự chọn: ưu tiên Manga Sub Cloud đã cấu hình, fallback riêng tư trên thiết bị")
         case .onDevice: route = text("Apple Vision + Translation when the pack is installed", "Apple Vision + Translation khi gói có sẵn")
         case .privateServer: route = text("Private server: \(endpoint)", "Server riêng: \(endpoint)")
         case .managedCloud: route = text("Managed Cloud: jobs are never sent automatically", "Managed Cloud: chưa gửi job tự động")

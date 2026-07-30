@@ -42,10 +42,10 @@ test('iOS app language is independent and defaults to English', () => {
   assert.doesNotMatch(source, /var appLanguage.+ReaderSettings/)
 })
 
-test('iOS automatic mode prefers an installed language pack and pins remote Gemini 3.6 Flash', () => {
+test('iOS automatic mode prefers configured cloud quality and pins remote Gemini 3.6 Flash', () => {
   assert.match(
     source,
-    /case \.automatic:[\s\S]*?state == \.installed[\s\S]*?return true[\s\S]*?!settingsStore\.loadToken\(\)\.isEmpty[\s\S]*?return false/,
+    /case \.automatic:[\s\S]*?!settingsStore\.loadToken\(\)\.isEmpty[\s\S]*?return false[\s\S]*?state == \.installed[\s\S]*?return true/,
   )
   assert.match(
     source,
@@ -63,9 +63,20 @@ test('iOS overlay bridge creates its layer before layout and rendering', () => {
   assert.match(source, /normalizedURL\(candidateURL\(item\)\) === expectedURL/)
   assert.match(source, /image = images\[index\]/)
   assert.match(source, /image\.__comicSubCandidateId = id/)
+  assert.match(source, /position:absolute/)
+  assert.match(source, /rect\.left \+ scrollX/)
+  assert.match(source, /rect\.top \+ scrollY/)
+  assert.match(source, /document\.documentElement\.append\(layer\)/)
+  assert.match(source, /const anchors = new Map\(\)/)
+  assert.match(source, /const alignmentReport = \(\) =>/)
+  assert.match(source, /COMIC_SUB_QA_POST_SCROLL_FRAGMENT/)
+  assert.match(source, /requestAnimationFrame\(\(\) => \{ relayoutFrame = 0; relayout\(\); \}\)/)
+  assert.match(source, /addEventListener\('scroll', announceAnchor/)
   assert.match(source, /try await attachRegions\(result, to: candidate\)/)
   assert.match(source, /let result = try await webView\.evaluateJavaScript\(script\)/)
   assert.match(source, /guard \(result as\? Bool\) == true/)
+  assert.match(source, /translatedCandidateIDs\.insert\(candidate\.id\)/)
+  assert.match(source, /translations visible/)
 })
 
 test('iOS reader renders broker regions directly and ignores its own overlay mutations', () => {
@@ -76,6 +87,9 @@ test('iOS reader renders broker regions directly and ignores its own overlay mut
   assert.doesNotMatch(remoteFlow, /client\.renderedAsset/)
   assert.match(source, /const belongsToReaderLayer =/)
   assert.match(source, /mutations\.some\(mutation => !isReaderMutation\(mutation\)\)/)
+  assert.match(source, /result\.overlayRegions\.removeAll\(where: isLikelyPublisherWatermark\)/)
+  assert.match(source, /private func isLikelyPublisherWatermark/)
+  assert.match(source, /content\.contains\("www\."\)/)
 })
 
 test('Translate Current selects the image most visible at click time and OCR starts fast', () => {
@@ -91,42 +105,49 @@ test('Translate Current selects the image most visible at click time and OCR sta
 })
 
 test('CJK on-device OCR refines suspicious fast results and rejects Latin garbage', () => {
-  assert.match(source, /if needsAccuratePass\(fast, sourceLanguage: sourceLanguage\)/)
+  assert.match(source, /if isCJK\(sourceLanguage\)/)
+  assert.match(source, /regions = \(fast \+ accurate\)/)
   assert.match(source, /level: \.accurate/)
   assert.match(source, /usesLanguageCorrection: true/)
   assert.match(source, /return cjkCount > 0/)
   assert.match(source, /mergeDialogueLines\(/)
-  assert.match(source, /source: previous\.source \+ region\.source/)
+  assert.match(source, /shouldMergeDialogue\(/)
+  assert.match(source, /overlap \/ smallerArea >= 0\.48/)
+  assert.match(source, /let bubbleSized = unionWidth <= pageWidth \* 0\.38/)
   assert.match(source, /const fitText = node =>/)
   assert.match(source, /if \(!semanticOnly\) fitText\(node\)/)
   assert.match(source, /const lengthRatio = targetLength \/ sourceLength/)
   assert.match(source, /Math\.min\(2, 1 \+ Math\.max\(0, lengthRatio - 1\) \* \.25\)/)
-  assert.match(source, /while \(size > 9/)
-  assert.match(source, /const separateOverlaps = boxes =>/)
-  assert.match(source, /const boxes = separateOverlaps\(regions\.map/)
+  assert.match(source, /while \(size > 8/)
+  assert.match(source, /const coalesceRegions = \(regions, page\) =>/)
+  assert.match(source, /overlapRatio < \.55/)
+  assert.match(source, /const displayRegions = coalesceRegions\(regions, page\)/)
   assert.match(source, /!isSiteWatermark\(text\)/)
   assert.match(source, /"包子漫画", "包子漫畫"/)
 })
 
-test('iOS 26 translates every local page in one direct batch without a modal', () => {
+test('iOS 26 translates every local page contextually in one direct batch without a modal', () => {
   assert.match(source, /var preparedPages: \[OnDevicePreparedPage\] = \[\]/)
-  assert.match(source, /let translated = try await translateOnDevice\(pendingTexts\)/)
+  assert.match(source, /let contextualPayloads = pagePlans\.map/)
+  assert.match(source, /let translatedPages = try await translateOnDevice\(contextualPayloads\)/)
+  assert.match(source, /parseContextualTranslations\(/)
+  assert.ok(source.includes('"【\\(offset + 1)】\\(source)"'))
   assert.match(source, /if #available\(iOS 26\.0, \*\)/)
   assert.match(source, /TranslationSession\(\s*installedSource:/)
   const localPipeline = source.match(
     /private func translateFullyOnDevice[\s\S]*?private func routeContract/,
   )?.[0] ?? ''
-  assert.equal((localPipeline.match(/translateOnDevice\(pendingTexts\)/g) ?? []).length, 1)
+  assert.equal((localPipeline.match(/translateOnDevice\(contextualPayloads\)/g) ?? []).length, 1)
   assert.match(source, /resolvedLocalTranslation\(source: source, translated:/)
   assert.match(source, /"啊": "A"/)
 })
 
-test('Safe Automatic prefers an installed Apple language pack before broker credentials', () => {
+test('Safe Automatic prefers configured broker quality before installed Apple fallback', () => {
   const automatic = source.indexOf('case .automatic:')
   const installed = source.indexOf('if state == .installed', automatic)
   const token = source.indexOf('if !settingsStore.loadToken().isEmpty', automatic)
-  assert.ok(automatic >= 0 && installed > automatic && token > installed)
-  assert.match(source, /Uses Apple Vision \+ Translation on device first/)
+  assert.ok(automatic >= 0 && token > automatic && installed > token)
+  assert.match(source, /Uses Manga Sub Cloud when configured/)
 })
 
 test('iOS remote route uploads adaptive page windows before waiting for results', () => {
@@ -137,4 +158,16 @@ test('iOS remote route uploads adaptive page windows before waiting for results'
   const settle = source.indexOf('pollSettled(client: client, jobID: job.jobId)', upload)
   assert.ok(upload >= 0 && flush > upload && settle > flush)
   assert.match(source, /v1\/job-batches\/\\\(batchID\)\/flush/)
+  assert.match(source, /http\.statusCode == 404/)
+  assert.match(source, /error\["code"\] as\? String == "ROUTE_NOT_FOUND"/)
+  assert.match(source, /Broker builds before the explicit flush endpoint/)
+})
+
+test('iOS canonicalizes comic candidates before snapshot and batch creation', () => {
+  assert.match(source, /private func canonicalCandidates\(_ values: \[WebCandidate\]\)/)
+  assert.match(source, /seenIDs\.insert\(candidate\.id\)\.inserted/)
+  assert.match(source, /seenURLs\.insert\(normalizedURL\)\.inserted/)
+  assert.match(source, /private func makeSnapshot[\s\S]*?let candidates = canonicalCandidates\(candidates\)/)
+  assert.match(source, /private func makeBatchRequest[\s\S]*?let candidates = canonicalCandidates\(candidates\)/)
+  assert.match(source, /let uniqueCandidates = canonicalCandidates\(decoded\)[\s\S]*?candidates = uniqueCandidates/)
 })
