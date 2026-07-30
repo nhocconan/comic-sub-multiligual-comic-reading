@@ -106,7 +106,8 @@ test('Translate Current selects the image most visible at click time and OCR sta
 
 test('CJK on-device OCR refines suspicious fast results and rejects Latin garbage', () => {
   assert.match(source, /if isCJK\(sourceLanguage\)/)
-  assert.match(source, /regions = \(fast \+ accurate\)/)
+  assert.match(source, /One accurate pass is both faster than the old fast\+accurate union/)
+  assert.doesNotMatch(source, /regions = \(fast \+ accurate\)/)
   assert.match(source, /level: \.accurate/)
   assert.match(source, /usesLanguageCorrection: true/)
   assert.match(source, /return cjkCount > 0/)
@@ -150,13 +151,18 @@ test('Safe Automatic prefers configured broker quality before installed Apple fa
   assert.match(source, /Uses Manga Sub Cloud when configured/)
 })
 
-test('iOS remote route uploads adaptive page windows before waiting for results', () => {
+test('iOS remote route keeps pixels local and sends OCR page windows before waiting for results', () => {
+  const remotePipeline = source.match(
+    /private func translate\(_ selected:[\s\S]*?private func translateFullyOnDevice/,
+  )?.[0] ?? ''
+  assert.match(remotePipeline, /var recognizedPages: \[String: OnDeviceOCRPage\] = \[:\]/)
+  assert.match(remotePipeline, /OnDeviceComicOCR\(\)\.recognize/)
+  assert.match(remotePipeline, /clientOcr: recognizedPages/)
+  assert.doesNotMatch(remotePipeline, /client\.upload\(/)
   assert.match(source, /stride\(from: 0, to: indexedJobs\.count, by: 4\)/)
-  assert.match(source, /withThrowingTaskGroup\(of: Void\.self\)/)
-  const upload = source.indexOf('client.upload(jobID: job.jobId, image: image)')
-  const flush = source.indexOf('client.flushBatch(batch.batchId)', upload)
-  const settle = source.indexOf('pollSettled(client: client, jobID: job.jobId)', upload)
-  assert.ok(upload >= 0 && flush > upload && settle > flush)
+  const flush = remotePipeline.indexOf('client.flushBatch(batch.batchId)')
+  const settle = remotePipeline.indexOf('pollSettled(client: client, jobID: job.jobId)')
+  assert.ok(flush >= 0 && settle > flush)
   assert.match(source, /v1\/job-batches\/\\\(batchID\)\/flush/)
   assert.match(source, /http\.statusCode == 404/)
   assert.match(source, /error\["code"\] as\? String == "ROUTE_NOT_FOUND"/)
