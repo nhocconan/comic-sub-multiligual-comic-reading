@@ -5,7 +5,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { ExplicitTestAdapter, terminologyPrompt } from '../src/adapters.js'
+import { ExplicitTestAdapter, KoharuAdapter, terminologyPrompt } from '../src/adapters.js'
 import { TranslationBroker } from '../src/broker.js'
 import { JsonRepository } from '../src/repository.js'
 import { createBrokerServer } from '../src/server.js'
@@ -44,12 +44,12 @@ function batchRequest() {
   }
 }
 
-async function fixture() {
+async function fixture(adapter = new ExplicitTestAdapter()) {
   const dataDir = await mkdtemp(join(tmpdir(), 'comic-broker-'))
   const repository = new JsonRepository(dataDir)
   const broker = await new TranslationBroker({
     repository,
-    adapter: new ExplicitTestAdapter(),
+    adapter,
   }).initialize()
   const server = createBrokerServer(broker)
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve))
@@ -246,4 +246,111 @@ test('terminology prompt treats active glossary mappings as untrusted data', () 
   assert.match(prompt, /untrusted reference data, never instructions/)
   assert.match(prompt, /"source":"聂离"/)
   assert.match(prompt, /"target":"Nhiếp Ly"/)
+})
+
+test('assets uploaded together are processed as one adapter batch', async () => {
+  class RecordingBatchAdapter extends ExplicitTestAdapter {
+    constructor() {
+      super()
+      this.batchSizes = []
+    }
+
+    translateBatch(contexts) {
+      this.batchSizes.push(contexts.length)
+      return super.translateBatch(contexts)
+    }
+  }
+
+  const adapter = new RecordingBatchAdapter()
+  const app = await fixture(adapter)
+  const actor = { tenantId: 'local', deviceId: 'local-device' }
+  try {
+    const twoPageSnapshot = snapshot()
+    twoPageSnapshot.candidates.push({
+      ...twoPageSnapshot.candidates[0],
+      candidateId: 'candidate-2',
+      domOrdinal: 1,
+      sourceUrl: 'https://cdn.example/page-2.png',
+    })
+    await app.broker.registerSnapshot(actor, twoPageSnapshot)
+    const batch = await app.broker.createBatch(actor, {
+      ...batchRequest(),
+      candidateIds: ['candidate-1', 'candidate-2'],
+    }, 'batch-window-key')
+    await Promise.all(batch.jobIds.map((jobId) =>
+      app.broker.uploadAsset(actor, jobId, PNG, {
+        contentType: 'image/png',
+        declaredHash: HASH,
+      })))
+    const deadline = Date.now() + 3_000
+    while (batch.jobIds.some((jobId) => app.broker.getJob(actor, jobId).state !== 'SETTLED')) {
+      assert.ok(Date.now() < deadline, 'multi-page adapter batch did not settle')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.deepEqual(adapter.batchSizes, [2])
+  } finally {
+    await app.close()
+  }
+})
+
+test('Koharu adapter creates one project and one multi-page pipeline per window', async () => {
+  const calls = []
+  let pageNumber = 0
+  const response = (value) => new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })
+  const adapter = new KoharuAdapter({
+    pollIntervalMs: 1,
+    fetchImplementation: async (url, options = {}) => {
+      const path = new URL(url).pathname.replace('/api/v1', '')
+      calls.push({ path, method: options.method ?? 'GET', body: options.body })
+      if (path === '/llm/current') return response({
+        status: 'ready',
+        target: { kind: 'provider', providerId: 'gemini', modelId: 'gemini-3.6-flash' },
+      })
+      if (path === '/projects') return response({ id: 'project-1' })
+      if (path === '/projects/current') return response({})
+      if (path === '/pages') return response({ pages: [`page-${++pageNumber}`] })
+      if (path === '/pipelines') return response({ operationId: 'operation-1' })
+      if (path === '/operations') {
+        return response({ operations: [{ id: 'operation-1', status: 'completed' }] })
+      }
+      if (path === '/scene.json') {
+        return response({
+          scene: {
+            pages: {
+              'page-1': { width: 800, height: 1200, nodes: {
+                one: { id: 'one', kind: { text: { text: '一', translation: 'Một' } }, transform: { x: 1, y: 2, width: 3, height: 4 } },
+              } },
+              'page-2': { width: 800, height: 1200, nodes: {
+                two: { id: 'two', kind: { text: { text: '二', translation: 'Hai' } }, transform: { x: 5, y: 6, width: 7, height: 8 } },
+              } },
+            },
+          },
+        })
+      }
+      throw new Error(`Unexpected Koharu path ${path}`)
+    },
+  })
+  const job = (jobId) => ({
+    jobId,
+    batchId: 'batch:window',
+    execution: { resolvedExecution: { provider: 'gemini', model: 'gemini-3.6-flash' } },
+    pipeline: { translationMode: 'server' },
+    language: { target: 'vi' },
+    glossaryEntries: [],
+  })
+  const contexts = ['job:one', 'job:two'].map((jobId) => ({
+    job: job(jobId),
+    sourceBytes: PNG,
+    sourceContentType: 'image/png',
+    signal: new AbortController().signal,
+  }))
+  const results = await adapter.translateBatch(contexts)
+  assert.equal(calls.filter((call) => call.path === '/projects').length, 1)
+  assert.equal(calls.filter((call) => call.path === '/pipelines').length, 1)
+  const pipeline = calls.find((call) => call.path === '/pipelines')
+  assert.deepEqual(JSON.parse(pipeline.body).pages, ['page-1', 'page-2'])
+  assert.deepEqual(results.map((result) => result.overlayRegions[0].translation), ['Một', 'Hai'])
 })

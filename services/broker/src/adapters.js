@@ -91,10 +91,17 @@ export class KoharuAdapter {
   }
 
   translate(context) {
+    return this.translateBatch([context]).then(([result]) => result)
+  }
+
+  translateBatch(contexts) {
+    if (!Array.isArray(contexts) || contexts.length === 0) {
+      return Promise.reject(new TypeError('Koharu batch must contain at least one page'))
+    }
     // Koharu 0.61.2 has a process-global /llm/current target. Serialize every
-    // Koharu job, pin and verify the immutable job target inside this adapter,
-    // and never expose that mutable endpoint to clients.
-    const operation = this.tail.then(() => this.#translate(context))
+    // project, pin and verify the immutable target, then run every ready page
+    // from one broker batch through one multi-page pipeline operation.
+    const operation = this.tail.then(() => this.#translateBatch(contexts))
     this.tail = operation.catch(() => undefined)
     return operation
   }
@@ -115,14 +122,28 @@ export class KoharuAdapter {
     return (await this.#request(path, options, signal)).json()
   }
 
-  async #translate({ job, sourceBytes, sourceContentType, signal }) {
+  async #translateBatch(contexts) {
     const json = (method, body) => ({
       method,
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     })
+    const [{ job, signal }] = contexts
     const execution = job.execution.resolvedExecution
     const clientDevice = job.pipeline.translationMode === 'client-device'
+    for (const context of contexts) {
+      const candidateExecution = context.job.execution.resolvedExecution
+      if (
+        candidateExecution.provider !== execution.provider ||
+        candidateExecution.model !== execution.model ||
+        context.job.pipeline.translationMode !== job.pipeline.translationMode ||
+        context.job.language.target !== job.language.target
+      ) {
+        throw Object.assign(new Error('Koharu batch contains incompatible jobs'), {
+          code: 'INCOMPATIBLE_KOHARU_BATCH',
+        })
+      }
+    }
     if (!clientDevice) {
       const target = {
         kind: 'provider',
@@ -149,28 +170,35 @@ export class KoharuAdapter {
 
     const project = await this.#json(
       '/projects',
-      json('POST', { name: `broker-${job.jobId}` }),
+      json('POST', { name: `broker-${job.batchId}` }),
       signal,
     )
     if (!project?.id) throw new Error('Koharu did not return a project id')
     await this.#json('/projects/current', json('PUT', { id: project.id }), signal)
-    const form = new FormData()
-    const extension =
-      sourceContentType === 'image/png' ? 'png' : sourceContentType === 'image/webp' ? 'webp' : 'jpg'
-    form.append(
-      'file',
-      new Blob([sourceBytes], { type: sourceContentType }),
-      `page-${job.jobId}.${extension}`,
-    )
-    form.append('replace', 'false')
-    const uploaded = await this.#json('/pages', { method: 'POST', body: form }, signal)
-    const pageId = uploaded?.pages?.[0]
-    if (!pageId) throw new Error('Koharu did not return a page id')
+    const pageIds = await Promise.all(contexts.map(async (context) => {
+      const form = new FormData()
+      const extension =
+        context.sourceContentType === 'image/png'
+          ? 'png'
+          : context.sourceContentType === 'image/webp'
+            ? 'webp'
+            : 'jpg'
+      form.append(
+        'file',
+        new Blob([context.sourceBytes], { type: context.sourceContentType }),
+        `page-${context.job.jobId}.${extension}`,
+      )
+      form.append('replace', 'false')
+      const uploaded = await this.#json('/pages', { method: 'POST', body: form }, signal)
+      const pageId = uploaded?.pages?.[0]
+      if (!pageId) throw new Error('Koharu did not return a page id')
+      return pageId
+    }))
     const started = await this.#json('/pipelines', json('POST', {
       steps: clientDevice
         ? ['comic-text-bubble-detector', 'paddle-ocr-vl-1.6']
         : ['comic-text-bubble-detector', 'paddle-ocr-vl-1.6', 'llm'],
-      pages: [pageId],
+      pages: pageIds,
       targetLanguage: job.language.target,
       systemPrompt: clientDevice
         ? undefined
@@ -195,16 +223,15 @@ export class KoharuAdapter {
     }
     if (Date.now() >= deadline) throw new Error('Koharu pipeline timed out')
     const snapshot = await this.#json('/scene.json', {}, signal)
-    const regions = parseRegions(snapshot.scene ?? snapshot, pageId, { sourceOnly: clientDevice })
-    return {
-      ...regions,
-      renderedBytes: sourceBytes,
-      renderedContentType: sourceContentType,
+    return contexts.map((context, index) => ({
+      ...parseRegions(snapshot.scene ?? snapshot, pageIds[index], { sourceOnly: clientDevice }),
+      renderedBytes: context.sourceBytes,
+      renderedContentType: context.sourceContentType,
       providerReportedModel: execution.model,
       tokenCounts: { input: 0, output: 0 },
       estimatedCostMicros: 0,
       adapter: this.name,
-    }
+    }))
   }
 }
 
@@ -241,5 +268,9 @@ export class ExplicitTestAdapter {
       estimatedCostMicros: 1,
       adapter: this.name,
     }
+  }
+
+  translateBatch(contexts) {
+    return Promise.all(contexts.map((context) => this.translate(context)))
   }
 }

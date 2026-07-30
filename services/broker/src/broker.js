@@ -110,6 +110,7 @@ export class TranslationBroker {
     this.seriesIntelligence = seriesIntelligence
     this.controllers = new Map()
     this.processing = new Set()
+    this.batchTimers = new Map()
   }
 
   async initialize() {
@@ -303,7 +304,7 @@ export class TranslationBroker {
     })
     if (!accepted.duplicate) {
       await this.repository.writeAsset(jobId, bytes, 'source')
-      queueMicrotask(() => this.#process(jobId))
+      this.#scheduleBatch(accepted.job.batchId)
     }
     return accepted.job
   }
@@ -362,100 +363,152 @@ export class TranslationBroker {
     })
   }
 
-  async #process(jobId) {
-    if (this.processing.has(jobId)) return
-    this.processing.add(jobId)
+  #scheduleBatch(batchId) {
+    const existing = this.batchTimers.get(batchId)
+    if (existing) clearTimeout(existing)
+    const timer = setTimeout(() => {
+      this.batchTimers.delete(batchId)
+      void this.#processReadyBatch(batchId)
+    }, 75)
+    timer.unref?.()
+    this.batchTimers.set(batchId, timer)
+  }
+
+  async #processReadyBatch(batchId) {
+    const jobIds = this.repository.read((state) => {
+      const batch = state.batches[batchId]
+      if (!batch) return []
+      return batch.jobIds.filter((jobId) =>
+        state.jobs[jobId]?.state === 'QUEUED' && !this.processing.has(jobId))
+    })
+    if (jobIds.length) await this.#processJobs(jobIds)
+  }
+
+  async #processJobs(jobIds) {
+    const pending = jobIds.filter((jobId) => !this.processing.has(jobId))
+    if (!pending.length) return
+    for (const jobId of pending) this.processing.add(jobId)
     const controller = new AbortController()
-    this.controllers.set(jobId, controller)
+    if (pending.length === 1) this.controllers.set(pending[0], controller)
     const started = Date.now()
     try {
-      await this.#transition(jobId, 'CLAIMED')
-      await this.#transition(jobId, 'ACQUIRING')
-      const job = this.repository.read((state) => structuredClone(state.jobs[jobId]))
-      if (job.state === 'CANCEL_REQUESTED') return await this.#finishCancelled(jobId)
-      const sourceBytes = await this.repository.readAsset(jobId, 'source')
-      await this.#transition(jobId, 'OCR')
-      const work = this.adapter.translate({
-        job,
-        sourceBytes,
-        sourceContentType: job.asset.contentType,
-        signal: controller.signal,
-      })
-      await this.#transition(jobId, 'TRANSLATING')
-      const result = await work
+      for (const jobId of pending) {
+        await this.#transition(jobId, 'CLAIMED')
+        await this.#transition(jobId, 'ACQUIRING')
+      }
+      const contexts = await Promise.all(pending.map(async (jobId) => {
+        const job = this.repository.read((state) => structuredClone(state.jobs[jobId]))
+        if (job.state === 'CANCEL_REQUESTED') {
+          await this.#finishCancelled(jobId)
+          return null
+        }
+        return {
+          job,
+          sourceBytes: await this.repository.readAsset(jobId, 'source'),
+          sourceContentType: job.asset.contentType,
+          signal: controller.signal,
+        }
+      }))
+      const activeContexts = contexts.filter(Boolean)
+      if (!activeContexts.length) return
+      for (const context of activeContexts) await this.#transition(context.job.jobId, 'OCR')
+      const work = typeof this.adapter.translateBatch === 'function'
+        ? this.adapter.translateBatch(activeContexts)
+        : Promise.all(activeContexts.map((context) => this.adapter.translate(context)))
+      for (const context of activeContexts) await this.#transition(context.job.jobId, 'TRANSLATING')
+      const results = await work
       controller.signal.throwIfAborted()
-      await this.#transition(jobId, 'RENDERING')
-      if (!result.renderedBytes || !ALLOWED_IMAGE_TYPES.has(result.renderedContentType)) {
-        throw Object.assign(new Error('Adapter did not return a valid rendered asset'), {
-          code: 'INVALID_ADAPTER_RESULT',
+      if (!Array.isArray(results) || results.length !== activeContexts.length) {
+        throw Object.assign(new Error('Adapter returned an incomplete batch'), {
+          code: 'INVALID_ADAPTER_BATCH_RESULT',
         })
       }
-      await this.repository.writeAsset(jobId, result.renderedBytes, 'rendered')
-      await this.#transition(jobId, 'VERIFYING')
-      const renderedHash = createHash('sha256').update(result.renderedBytes).digest('hex')
-      await this.repository.mutate((state) => {
-        const mutable = state.jobs[jobId]
-        mutable.result = {
-          page: result.page,
-          overlayRegions: result.overlayRegions,
-          adapter: result.adapter,
-          renderedAsset: {
-            contentType: result.renderedContentType,
-            byteLength: result.renderedBytes.length,
-            sha256: renderedHash,
-          },
-        }
-        mutable.receipt = createModelReceipt(mutable.execution, result)
-        Object.assign(mutable, structuredClone(transitionJob(mutable, 'SUCCEEDED')))
-        Object.assign(mutable, structuredClone(transitionJob(mutable, 'SETTLED')))
-        mutable.ledger = {
-          ...mutable.ledger,
-          state: 'CAPTURED',
-          capturedMicros: Math.min(
-            mutable.ledger.reservedMicros,
-            result.estimatedCostMicros ?? mutable.ledger.reservedMicros,
-          ),
-        }
-        state.telemetry.push({
-          ...validateSafeTelemetryEvent({
-            eventId: `event:${randomUUID()}`,
-            requestId: mutable.batchId,
-            jobId,
-            timestamp: new Date().toISOString(),
-            stage: 'SETTLED',
-            requestedModel: mutable.execution.requestedExecution.model,
-            resolvedModel: mutable.execution.resolvedExecution.model,
-            providerReportedModel: result.providerReportedModel,
-            tokenCounts: result.tokenCounts,
-            latencyMs: Date.now() - started,
-            estimatedCostMicros: result.estimatedCostMicros,
-          }),
-          principalKey: `${mutable.principal.tenantId}:${mutable.principal.deviceId}`,
-        })
-      })
+      await Promise.all(activeContexts.map(async (context, index) => {
+        const state = this.repository.read((value) => value.jobs[context.job.jobId]?.state)
+        if (state === 'CANCEL_REQUESTED') return this.#finishCancelled(context.job.jobId)
+        return this.#settleResult(context.job.jobId, results[index], started)
+      }))
     } catch (error) {
-      const cancelled = controller.signal.aborted ||
-        this.repository.read((state) => state.jobs[jobId]?.state === 'CANCEL_REQUESTED')
-      if (cancelled) await this.#finishCancelled(jobId)
-      else {
-        await this.repository.mutate((state) => {
-          const job = state.jobs[jobId]
-          if (!isTerminalJobState(job.state)) {
-            Object.assign(job, structuredClone(transitionJob(job, 'FAILED', {
-              code: error.code ?? 'ADAPTER_FAILED',
-            })))
-            job.error = {
-              code: error.code ?? 'ADAPTER_FAILED',
-              message: String(error.message ?? 'Translation failed').slice(0, 512),
-            }
-            job.ledger = { ...job.ledger, state: 'RELEASED', capturedMicros: 0 }
-          }
-        })
-      }
+      await Promise.all(pending.map(async (jobId) => {
+        const cancelled = controller.signal.aborted ||
+          this.repository.read((state) => state.jobs[jobId]?.state === 'CANCEL_REQUESTED')
+        if (cancelled) return this.#finishCancelled(jobId)
+        return this.#failJob(jobId, error)
+      }))
     } finally {
-      this.controllers.delete(jobId)
-      this.processing.delete(jobId)
+      for (const jobId of pending) {
+        this.controllers.delete(jobId)
+        this.processing.delete(jobId)
+      }
     }
+  }
+
+  async #settleResult(jobId, result, started) {
+    await this.#transition(jobId, 'RENDERING')
+    if (!result.renderedBytes || !ALLOWED_IMAGE_TYPES.has(result.renderedContentType)) {
+      throw Object.assign(new Error('Adapter did not return a valid rendered asset'), {
+        code: 'INVALID_ADAPTER_RESULT',
+      })
+    }
+    await this.repository.writeAsset(jobId, result.renderedBytes, 'rendered')
+    await this.#transition(jobId, 'VERIFYING')
+    const renderedHash = createHash('sha256').update(result.renderedBytes).digest('hex')
+    await this.repository.mutate((state) => {
+      const mutable = state.jobs[jobId]
+      mutable.result = {
+        page: result.page,
+        overlayRegions: result.overlayRegions,
+        adapter: result.adapter,
+        renderedAsset: {
+          contentType: result.renderedContentType,
+          byteLength: result.renderedBytes.length,
+          sha256: renderedHash,
+        },
+      }
+      mutable.receipt = createModelReceipt(mutable.execution, result)
+      Object.assign(mutable, structuredClone(transitionJob(mutable, 'SUCCEEDED')))
+      Object.assign(mutable, structuredClone(transitionJob(mutable, 'SETTLED')))
+      mutable.ledger = {
+        ...mutable.ledger,
+        state: 'CAPTURED',
+        capturedMicros: Math.min(
+          mutable.ledger.reservedMicros,
+          result.estimatedCostMicros ?? mutable.ledger.reservedMicros,
+        ),
+      }
+      state.telemetry.push({
+        ...validateSafeTelemetryEvent({
+          eventId: `event:${randomUUID()}`,
+          requestId: mutable.batchId,
+          jobId,
+          timestamp: new Date().toISOString(),
+          stage: 'SETTLED',
+          requestedModel: mutable.execution.requestedExecution.model,
+          resolvedModel: mutable.execution.resolvedExecution.model,
+          providerReportedModel: result.providerReportedModel,
+          tokenCounts: result.tokenCounts,
+          latencyMs: Date.now() - started,
+          estimatedCostMicros: result.estimatedCostMicros,
+        }),
+        principalKey: `${mutable.principal.tenantId}:${mutable.principal.deviceId}`,
+      })
+    })
+  }
+
+  #failJob(jobId, error) {
+    return this.repository.mutate((state) => {
+      const job = state.jobs[jobId]
+      if (!isTerminalJobState(job.state)) {
+        Object.assign(job, structuredClone(transitionJob(job, 'FAILED', {
+          code: error.code ?? 'ADAPTER_FAILED',
+        })))
+        job.error = {
+          code: error.code ?? 'ADAPTER_FAILED',
+          message: String(error.message ?? 'Translation failed').slice(0, 512),
+        }
+        job.ledger = { ...job.ledger, state: 'RELEASED', capturedMicros: 0 }
+      }
+    })
   }
 
   async #finishCancelled(jobId) {

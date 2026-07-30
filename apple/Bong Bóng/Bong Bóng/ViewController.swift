@@ -4,12 +4,49 @@ import SafariServices
 import Security
 import CryptoKit
 import Foundation
+import ImageIO
+@preconcurrency import Vision
 #if canImport(SwiftUI)
 import SwiftUI
 #endif
 #if canImport(Translation)
 import Translation
 #endif
+
+private enum AppLanguage: String, CaseIterable {
+    case english = "en"
+    case vietnamese = "vi"
+
+    var nativeName: String {
+        switch self {
+        case .english: return "English"
+        case .vietnamese: return "Tiếng Việt"
+        }
+    }
+
+    var locale: Locale { Locale(identifier: rawValue) }
+}
+
+private final class AppLanguageStore {
+    static let shared = AppLanguageStore()
+    private let key = "ComicSubAppLanguage.v1"
+
+    func load() -> AppLanguage {
+        guard let raw = UserDefaults.standard.string(forKey: key),
+              let language = AppLanguage(rawValue: raw) else {
+            return .english
+        }
+        return language
+    }
+
+    func save(_ language: AppLanguage) {
+        UserDefaults.standard.set(language.rawValue, forKey: key)
+    }
+}
+
+private func uiText(_ english: String, _ vietnamese: String, language: AppLanguage = AppLanguageStore.shared.load()) -> String {
+    language == .vietnamese ? vietnamese : english
+}
 
 // Comic Sub Reader deliberately keeps remote web content inside WKWebView. The
 // page bridge is limited to discovered image metadata and reading anchors; it
@@ -21,21 +58,21 @@ private enum ProcessingRoute: String, CaseIterable, Codable {
     case privateServer
     case managedCloud
 
-    var title: String {
+    func title(language: AppLanguage = AppLanguageStore.shared.load()) -> String {
         switch self {
-        case .automatic: return "Tự chọn an toàn"
-        case .onDevice: return "Trên thiết bị"
-        case .privateServer: return "Server riêng"
+        case .automatic: return uiText("Safe Automatic", "Tự chọn an toàn", language: language)
+        case .onDevice: return uiText("On Device", "Trên thiết bị", language: language)
+        case .privateServer: return uiText("Private Server", "Server riêng", language: language)
         case .managedCloud: return "Comic Sub Cloud"
         }
     }
 
-    var privacySummary: String {
+    func privacySummary(language: AppLanguage = AppLanguageStore.shared.load()) -> String {
         switch self {
-        case .automatic: return "Không tự chuyển sang Cloud khi chưa hỏi bạn."
-        case .onDevice: return "Chỉ dịch văn bản trên thiết bị khi gói ngôn ngữ đã cài. OCR/bố cục phải có tuyến riêng."
-        case .privateServer: return "Ảnh phù hợp có thể được gửi đến server bạn đã ghép nối qua HTTPS."
-        case .managedCloud: return "Chỉ dùng sau khi bạn xác nhận đường truyền dữ liệu cho job này."
+        case .automatic: return uiText("Uses your configured broker first, then falls back to on-device translation.", "Ưu tiên broker đã cấu hình, sau đó mới dùng dịch trên thiết bị.", language: language)
+        case .onDevice: return uiText("Text is translated on device when the language pack is installed. OCR/layout still needs a separate route.", "Chỉ dịch văn bản trên thiết bị khi gói ngôn ngữ đã cài. OCR/bố cục phải có tuyến riêng.", language: language)
+        case .privateServer: return uiText("Eligible images may be sent to your paired server over HTTPS.", "Ảnh phù hợp có thể được gửi đến server bạn đã ghép nối qua HTTPS.", language: language)
+        case .managedCloud: return uiText("Used only after you confirm data transfer for this job.", "Chỉ dùng sau khi bạn xác nhận đường truyền dữ liệu cho job này.", language: language)
         }
     }
 }
@@ -45,7 +82,7 @@ private struct ReaderSettings: Codable {
     var sourceLanguage = "zh-Hans"
     var route: ProcessingRoute = .automatic
     var endpoint = "https://comic-be.dep.app"
-    var lookAhead = 2
+    var lookAhead = 0
     var privateSession = false
     var externalResearchAllowed = false
     var glossary = ""
@@ -192,11 +229,14 @@ private enum BrokerError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .invalidEndpoint: return "Broker thủ công cần URL HTTPS; chỉ Mac được ghép qua Bonjour mới dùng HTTP nội bộ."
+        case .invalidEndpoint: return uiText(
+            "A manually configured broker requires an HTTPS URL. Only a Mac paired through Bonjour may use local HTTP.",
+            "Broker thủ công cần URL HTTPS; chỉ Mac được ghép qua Bonjour mới dùng HTTP nội bộ."
+        )
         case .request(let message): return message
-        case .cancelled: return "Đã huỷ bản dịch."
+        case .cancelled: return uiText("Translation cancelled.", "Đã huỷ bản dịch.")
         case .unsafeImage(let message): return message
-        case .modelMismatch: return "Broker trả về model khác với model đã yêu cầu."
+        case .modelMismatch: return uiText("The broker returned a different model than requested.", "Broker trả về model khác với model đã yêu cầu.")
         }
     }
 }
@@ -294,35 +334,35 @@ private final class BrokerClient {
     }
 
     func seriesGlossary(_ seriesID: String) async throws -> SeriesBootstrapResponse {
-        try await json(path: "v1/series/\(encoded(seriesID))/glossary", method: "GET")
+        try await json(path: "v1/series/\(seriesID)/glossary", method: "GET")
     }
 
     func upload(jobID: String, image: AcquiredImage) async throws {
-        var request = request(path: "v1/jobs/\(encoded(jobID))/asset", method: "PUT")
+        var request = request(path: "v1/jobs/\(jobID)/asset", method: "PUT")
         request.setValue(image.mimeType, forHTTPHeaderField: "Content-Type")
         request.setValue(image.sha256, forHTTPHeaderField: "x-content-sha256")
         request.httpBody = image.bytes
-        let (_, response) = try await URLSession.shared.data(for: request)
-        try validate(response)
+        let (body, response) = try await URLSession.shared.data(for: request)
+        try validate(response, body: body)
     }
 
-    func job(_ id: String) async throws -> BrokerJob { try await json(path: "v1/jobs/\(encoded(id))", method: "GET") }
-    func result(_ id: String) async throws -> BrokerResult { try await json(path: "v1/jobs/\(encoded(id))/result", method: "GET") }
+    func job(_ id: String) async throws -> BrokerJob { try await json(path: "v1/jobs/\(id)", method: "GET") }
+    func result(_ id: String) async throws -> BrokerResult { try await json(path: "v1/jobs/\(id)/result", method: "GET") }
 
     func renderedAsset(_ result: BrokerResult) async throws -> Data {
-        var request = self.request(path: "v1/jobs/\(encoded(result.jobId))/rendered-asset", method: "GET")
+        var request = self.request(path: "v1/jobs/\(result.jobId)/rendered-asset", method: "GET")
         request.timeoutInterval = 45
         let (data, response) = try await URLSession.shared.data(for: request)
-        try validate(response)
+        try validate(response, body: data)
         guard data.count == result.renderedAsset.byteLength,
               digest(data) == result.renderedAsset.sha256 else {
-            throw BrokerError.request("Rendered asset không khớp biên nhận broker.")
+            throw BrokerError.request(uiText("The rendered asset does not match the broker receipt.", "Rendered asset không khớp biên nhận broker."))
         }
         return data
     }
 
     func cancel(_ id: String) async {
-        do { _ = try await json(path: "v1/jobs/\(encoded(id))/cancel", method: "POST") as EmptyResponse } catch { }
+        do { _ = try await json(path: "v1/jobs/\(id)/cancel", method: "POST") as EmptyResponse } catch { }
     }
 
     private func json<T: Decodable>(path: String, method: String, payload: [String: Any]? = nil, extraHeaders: [String: String] = [:]) async throws -> T {
@@ -339,7 +379,12 @@ private final class BrokerClient {
     }
 
     private func request(path: String, method: String) -> URLRequest {
-        let url = baseURL.appendingPathComponent(path)
+        // Append raw path segments exactly once. Pre-encoding a server-issued
+        // ID such as "job:..." and then giving it to URL would encode "%" a
+        // second time, turning job%3A... into job%253A... on the wire.
+        let url = path.split(separator: "/", omittingEmptySubsequences: true).reduce(baseURL) {
+            $0.appendingPathComponent(String($1), isDirectory: false)
+        }
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 45
@@ -350,14 +395,13 @@ private final class BrokerClient {
     }
 
     private func validate(_ response: URLResponse, body: Data = Data()) throws {
-        guard let http = response as? HTTPURLResponse else { throw BrokerError.request("Broker không trả HTTP response.") }
+        guard let http = response as? HTTPURLResponse else { throw BrokerError.request(uiText("The broker did not return an HTTP response.", "Broker không trả HTTP response.")) }
         guard (200..<300).contains(http.statusCode) else {
             let server = (try? JSONSerialization.jsonObject(with: body) as? [String: Any])? ["error"] as? [String: Any]
-            throw BrokerError.request((server?["message"] as? String) ?? "Broker trả lỗi HTTP \(http.statusCode).")
+            throw BrokerError.request((server?["message"] as? String) ?? uiText("Broker returned HTTP \(http.statusCode).", "Broker trả lỗi HTTP \(http.statusCode)."))
         }
     }
 
-    private func encoded(_ value: String) -> String { value.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? value }
     private struct EmptyResponse: Decodable { }
 }
 
@@ -378,9 +422,9 @@ private final class ReaderAssetSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        guard let id = urlSchemeTask.request.url?.lastPathComponent else { urlSchemeTask.didFailWithError(BrokerError.request("Thiếu rendered asset.")); return }
+        guard let id = urlSchemeTask.request.url?.lastPathComponent else { urlSchemeTask.didFailWithError(BrokerError.request(uiText("Missing rendered asset.", "Thiếu rendered asset."))); return }
         lock.lock(); let asset = assets[id]; lock.unlock()
-        guard let asset, let url = urlSchemeTask.request.url else { urlSchemeTask.didFailWithError(BrokerError.request("Rendered asset không còn trong phiên.")); return }
+        guard let asset, let url = urlSchemeTask.request.url else { urlSchemeTask.didFailWithError(BrokerError.request(uiText("The rendered asset is no longer available in this session.", "Rendered asset không còn trong phiên."))); return }
         let response = URLResponse(url: url, mimeType: asset.1, expectedContentLength: asset.0.count, textEncodingName: nil)
         urlSchemeTask.didReceive(response)
         urlSchemeTask.didReceive(asset.0)
@@ -400,7 +444,7 @@ private final class BoundedImageFetcher: NSObject, URLSessionDataDelegate, URLSe
     func fetch(candidate: WebCandidate, pageURL: URL, store: WKWebsiteDataStore) async throws -> AcquiredImage {
         guard let sourceURL = URL(string: candidate.url),
               ["http", "https"].contains(sourceURL.scheme?.lowercased() ?? "") else {
-            throw BrokerError.unsafeImage("Nguồn ảnh không phải HTTP(S).")
+            throw BrokerError.unsafeImage(uiText("The image source is not HTTP(S).", "Nguồn ảnh không phải HTTP(S)."))
         }
         let cookies = await cookies(for: sourceURL, store: store)
         var request = URLRequest(url: sourceURL)
@@ -438,19 +482,19 @@ private final class BoundedImageFetcher: NSObject, URLSessionDataDelegate, URLSe
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         completionHandler(nil) // exact candidate URL only; no credential-bearing redirect chain.
-        finish(.failure(BrokerError.unsafeImage("Nguồn ảnh chuyển hướng sang URL khác.")))
+        finish(.failure(BrokerError.unsafeImage(uiText("The image source redirected to a different URL.", "Nguồn ảnh chuyển hướng sang URL khác."))))
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            completionHandler(.cancel); finish(.failure(BrokerError.unsafeImage("Nguồn ảnh không phản hồi thành công."))); return
+            completionHandler(.cancel); finish(.failure(BrokerError.unsafeImage(uiText("The image source did not return a successful response.", "Nguồn ảnh không phản hồi thành công.")))); return
         }
         let type = http.mimeType?.lowercased() ?? ""
         guard ["image/jpeg", "image/png", "image/webp"].contains(type) else {
-            completionHandler(.cancel); finish(.failure(BrokerError.unsafeImage("Nguồn ảnh không phải JPEG, PNG hoặc WebP."))); return
+            completionHandler(.cancel); finish(.failure(BrokerError.unsafeImage(uiText("The image is not JPEG, PNG, or WebP.", "Nguồn ảnh không phải JPEG, PNG hoặc WebP.")))); return
         }
         if response.expectedContentLength > Int64(Self.maximumBytes) {
-            completionHandler(.cancel); finish(.failure(BrokerError.unsafeImage("Ảnh vượt giới hạn 32 MiB."))); return
+            completionHandler(.cancel); finish(.failure(BrokerError.unsafeImage(uiText("The image exceeds the 32 MiB limit.", "Ảnh vượt giới hạn 32 MiB.")))); return
         }
         mimeType = type
         completionHandler(.allow)
@@ -459,7 +503,7 @@ private final class BoundedImageFetcher: NSObject, URLSessionDataDelegate, URLSe
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard !finished else { return }
         guard received.count + data.count <= Self.maximumBytes else {
-            dataTask.cancel(); finish(.failure(BrokerError.unsafeImage("Ảnh vượt giới hạn 32 MiB."))); return
+            dataTask.cancel(); finish(.failure(BrokerError.unsafeImage(uiText("The image exceeds the 32 MiB limit.", "Ảnh vượt giới hạn 32 MiB.")))); return
         }
         received.append(data)
     }
@@ -468,7 +512,7 @@ private final class BoundedImageFetcher: NSObject, URLSessionDataDelegate, URLSe
         guard !finished else { return }
         if let error { finish(.failure(error)); return }
         guard sniffedMime(for: received) == mimeType else {
-            finish(.failure(BrokerError.unsafeImage("MIME hoặc magic bytes của ảnh không hợp lệ."))); return
+            finish(.failure(BrokerError.unsafeImage(uiText("The image MIME type or magic bytes are invalid.", "MIME hoặc magic bytes của ảnh không hợp lệ.")))); return
         }
         finish(.success(AcquiredImage(bytes: received, mimeType: mimeType, sha256: digest(received))))
     }
@@ -487,6 +531,77 @@ private final class BoundedImageFetcher: NSObject, URLSessionDataDelegate, URLSe
         if bytes.count >= 8 && Array(bytes.prefix(8)) == [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] { return "image/png" }
         if bytes.count >= 12 && Array(bytes.prefix(4)) == [0x52, 0x49, 0x46, 0x46] && Array(bytes[8..<12]) == [0x57, 0x45, 0x42, 0x50] { return "image/webp" }
         return nil
+    }
+}
+
+private struct OnDeviceOCRPage {
+    let page: BrokerPage
+    var regions: [BrokerRegion]
+}
+
+private final class OnDeviceComicOCR {
+    func recognize(_ image: AcquiredImage, sourceLanguage: String) async throws -> OnDeviceOCRPage {
+        guard let source = CGImageSourceCreateWithData(image.bytes as CFData, nil),
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw BrokerError.unsafeImage(uiText("Could not decode this comic image on the device.", "Không giải mã được ảnh truyện này trên thiết bị."))
+        }
+        let width = Double(cgImage.width)
+        let height = Double(cgImage.height)
+        let recognitionLanguage: String
+        switch sourceLanguage {
+        case "zh-Hans": recognitionLanguage = "zh-Hans"
+        case "zh-Hant": recognitionLanguage = "zh-Hant"
+        case "ja": recognitionLanguage = "ja-JP"
+        case "ko": recognitionLanguage = "ko-KR"
+        default: recognitionLanguage = sourceLanguage
+        }
+
+        return try await withCheckedThrowingContinuation { continuation in
+            let request = VNRecognizeTextRequest { request, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                let observations = request.results as? [VNRecognizedTextObservation] ?? []
+                var regions = observations.compactMap { observation -> BrokerRegion? in
+                    guard let candidate = observation.topCandidates(1).first else { return nil }
+                    let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !text.isEmpty else { return nil }
+                    let box = observation.boundingBox
+                    return BrokerRegion(
+                        id: "vision-\(UUID().uuidString)",
+                        x: box.minX * width,
+                        y: (1 - box.maxY) * height,
+                        width: box.width * width,
+                        height: box.height * height,
+                        rotation: nil,
+                        source: text,
+                        translation: "",
+                        confidence: Double(candidate.confidence)
+                    )
+                }
+                regions.sort {
+                    let rowTolerance = max(8, height * 0.012)
+                    if abs($0.y - $1.y) > rowTolerance { return $0.y < $1.y }
+                    return $0.x < $1.x
+                }
+                continuation.resume(returning: OnDeviceOCRPage(
+                    page: BrokerPage(width: width, height: height),
+                    regions: regions
+                ))
+            }
+            request.recognitionLevel = .fast
+            request.usesLanguageCorrection = false
+            request.recognitionLanguages = [recognitionLanguage]
+            request.minimumTextHeight = 0.008
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
     }
 }
 
@@ -639,9 +754,9 @@ private enum OnDeviceTranslationState: Equatable {
     var message: String {
         switch self {
         case .unavailable(let detail): return detail
-        case .installed: return "Dịch văn bản trên thiết bị đã sẵn sàng."
-        case .downloadable: return "Cặp ngôn ngữ được hỗ trợ nhưng chưa cài trên thiết bị."
-        case .unsupported: return "Apple không hỗ trợ cặp ngôn ngữ này trên thiết bị này."
+        case .installed: return uiText("On-device text translation is ready.", "Dịch văn bản trên thiết bị đã sẵn sàng.")
+        case .downloadable: return uiText("This language pair is supported but not installed.", "Cặp ngôn ngữ được hỗ trợ nhưng chưa cài trên thiết bị.")
+        case .unsupported: return uiText("Apple does not support this language pair on this device.", "Apple không hỗ trợ cặp ngôn ngữ này trên thiết bị này.")
         }
     }
 }
@@ -650,7 +765,7 @@ private final class OnDeviceTranslationCapability {
     func check(source: String, target: String) async -> OnDeviceTranslationState {
         #if canImport(Translation)
         guard #available(iOS 18.0, *) else {
-            return .unavailable("Dịch văn bản trên thiết bị cần iOS 18 trở lên.")
+            return .unavailable(uiText("On-device text translation requires iOS 18 or later.", "Dịch văn bản trên thiết bị cần iOS 18 trở lên."))
         }
         let sourceLanguage = Locale.Language(identifier: source)
         let targetLanguage = Locale.Language(identifier: target)
@@ -663,7 +778,7 @@ private final class OnDeviceTranslationCapability {
         @unknown default: return .unsupported
         }
         #else
-        return .unavailable("Translation framework không có trong SDK đang dùng.")
+        return .unavailable(uiText("The Translation framework is unavailable in this SDK.", "Translation framework không có trong SDK đang dùng."))
         #endif
     }
 
@@ -675,14 +790,14 @@ private final class OnDeviceTranslationCapability {
         // 26. On iOS 18–25 we still report language availability truthfully;
         // invoking a system download/translation sheet belongs to a SwiftUI
         // translationTask host, which is intentionally not faked here.
-        guard #available(iOS 26.0, *) else { throw NSError(domain: "ComicSub", code: 26, userInfo: [NSLocalizedDescriptionKey: "Thiết bị này có thể báo trạng thái gói ngôn ngữ, nhưng API dịch trực tiếp cần iOS 26 trở lên."]) }
+        guard #available(iOS 26.0, *) else { throw NSError(domain: "ComicSub", code: 26, userInfo: [NSLocalizedDescriptionKey: uiText("This device can report language-pack availability, but direct translation requires iOS 26 or later.", "Thiết bị này có thể báo trạng thái gói ngôn ngữ, nhưng API dịch trực tiếp cần iOS 26 trở lên.")]) }
         let session = TranslationSession(
             installedSource: Locale.Language(identifier: source),
             target: Locale.Language(identifier: target)
         )
         return try await session.translate(text).targetText
         #else
-        throw NSError(domain: "ComicSub", code: 0, userInfo: [NSLocalizedDescriptionKey: "Translation framework không có trong SDK này."])
+        throw NSError(domain: "ComicSub", code: 0, userInfo: [NSLocalizedDescriptionKey: uiText("The Translation framework is unavailable in this SDK.", "Translation framework không có trong SDK này.")])
         #endif
     }
 }
@@ -691,7 +806,7 @@ private final class OnDeviceTranslationCapability {
 @available(iOS 18.0, *)
 private struct TranslationPreparationView: View {
     @State private var configuration: TranslationSession.Configuration?
-    @State private var status = "Đang yêu cầu gói ngôn ngữ từ Apple…"
+    @State private var status: String
     let completion: (Bool) -> Void
 
     init(source: String, target: String, completion: @escaping (Bool) -> Void) {
@@ -699,6 +814,7 @@ private struct TranslationPreparationView: View {
             source: Locale.Language(identifier: source),
             target: Locale.Language(identifier: target)
         ))
+        _status = State(initialValue: uiText("Requesting the language pack from Apple…", "Đang yêu cầu gói ngôn ngữ từ Apple…"))
         self.completion = completion
     }
 
@@ -706,7 +822,7 @@ private struct TranslationPreparationView: View {
         VStack(spacing: 16) {
             Image(systemName: "arrow.down.circle")
                 .font(.system(size: 36))
-            Text("Chuẩn bị dịch trên thiết bị")
+            Text(uiText("Preparing On-Device Translation", "Chuẩn bị dịch trên thiết bị"))
                 .font(.headline)
             Text(status)
                 .multilineTextAlignment(.center)
@@ -717,12 +833,12 @@ private struct TranslationPreparationView: View {
             do {
                 try await session.prepareTranslation()
                 await MainActor.run {
-                    status = "Gói ngôn ngữ đã sẵn sàng."
+                    status = uiText("The language pack is ready.", "Gói ngôn ngữ đã sẵn sàng.")
                     completion(true)
                 }
             } catch {
                 await MainActor.run {
-                    status = "Không thể tải gói ngôn ngữ: \(error.localizedDescription)"
+                    status = uiText("Could not download the language pack: \(error.localizedDescription)", "Không thể tải gói ngôn ngữ: \(error.localizedDescription)")
                     completion(false)
                 }
             }
@@ -748,8 +864,8 @@ private struct ClientRegionTranslationView: View {
     var body: some View {
         VStack(spacing: 12) {
             ProgressView()
-            Text("Đang dịch văn bản trên thiết bị")
-            Text("Ảnh truyện không rời khỏi tuyến OCR đã chọn.")
+            Text(uiText("Translating Text on This Device", "Đang dịch văn bản trên thiết bị"))
+            Text(uiText("Comic images remain within the selected OCR route.", "Ảnh truyện không rời khỏi tuyến OCR đã chọn."))
                 .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
         }
         .padding(28)
@@ -814,20 +930,34 @@ private enum ReaderBridge {
         Object.assign(layer.style, { left: `${rect.left + scrollX}px`, top: `${rect.top + scrollY}px`, width: `${rect.width}px`, height: `${rect.height}px` });
         return { image, layer, rect };
       };
+      const targetFor = id => {
+        if (!imageFor(id)) return null;
+        ensureLayer(id);
+        return layout(id);
+      };
       const place = (node, region, page, rect) => Object.assign(node.style, { position: 'absolute', left: `${region.x / page.width * rect.width}px`, top: `${region.y / page.height * rect.height}px`, width: `${region.width / page.width * rect.width}px`, height: `${region.height / page.height * rect.height}px`, transform: `rotate(${region.rotation || 0}deg)` });
       const applyRendered = (id, assetURL, label) => {
-        const target = layout(id); if (!target) return false;
+        const target = targetFor(id); if (!target) return false;
         target.layer.replaceChildren();
         const image = document.createElement('img'); image.src = assetURL; image.alt = label; image.setAttribute('role', 'img'); image.style.cssText = 'width:100%;height:100%;display:block;'; target.layer.append(image); return true;
       };
       const applyRegions = (id, regions, page, semanticOnly) => {
-        const target = layout(id); if (!target) return false;
+        const target = targetFor(id); if (!target) return false;
         if (!semanticOnly) target.layer.replaceChildren();
         regions.forEach(region => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, region, page, target.rect); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:3px;background:rgba(255,253,245,.94);color:#17130e;border-radius:4px;text-align:center;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.15;overflow:hidden;'; target.layer.append(node); }); return true;
       };
       const relayout = () => layers.forEach((_, id) => layout(id));
       window.__comicSubReaderBridge = { scan, scrollToCandidate: id => { const image = imageFor(id); if (image) image.scrollIntoView({ block: 'start', behavior: 'auto' }); return !!image; }, applyRendered, applyRegions, relayout, clear: id => { layers.get(id)?.remove(); layers.delete(id); } };
-      new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'data-src', 'data-original', 'data-lazy-src'] });
+      const belongsToReaderLayer = node => node?.nodeType === Node.ELEMENT_NODE &&
+        (node.matches?.('[data-comic-sub-layer]') || node.closest?.('[data-comic-sub-layer]'));
+      const isReaderMutation = mutation => {
+        if (belongsToReaderLayer(mutation.target)) return true;
+        const changed = [...mutation.addedNodes, ...mutation.removedNodes];
+        return changed.length > 0 && changed.every(belongsToReaderLayer);
+      };
+      new MutationObserver(mutations => {
+        if (mutations.some(mutation => !isReaderMutation(mutation))) scan();
+      }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src', 'data-src', 'data-original', 'data-lazy-src'] });
       addEventListener('load', scan, true);
       addEventListener('scroll', announceAnchor, { passive: true });
       addEventListener('resize', relayout, { passive: true });
@@ -846,6 +976,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private let seriesConsentStore = SeriesConsentStore.shared
     private let seriesContinuityStore = SeriesContinuityStore.shared
     private let translationCapability = OnDeviceTranslationCapability()
+    private let onDeviceOCR = OnDeviceComicOCR()
     private let assetHandler = ReaderAssetSchemeHandler()
     private let brokerDiscovery = BonjourBrokerDiscovery()
     private var settings = ReaderSettingsStore.shared.load()
@@ -883,6 +1014,11 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private let statusLabel = UILabel()
     private let translateButton = UIButton(type: .system)
     private let homeCard = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
+    private let homeTitleLabel = UILabel()
+    private let homeDetailLabel = UILabel()
+    private let pasteButton = UIButton(type: .system)
+    private let historyButton = UIButton(type: .system)
+    private let privateSessionButton = UIButton(type: .system)
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -903,11 +1039,12 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         configureChrome()
         configureHomeCard()
         configureTranslationButton()
+        applyAppLanguage()
         brokerDiscovery.onBrokerChanged = { [weak self] broker in
             guard let self else { return }
             self.discoveredBroker = broker
             if let broker {
-                self.updateRouteStatus("Đã ghép Mac: \(broker.displayName) · broker nội bộ")
+                self.updateRouteStatus(uiText("Paired with Mac: \(broker.displayName) · local broker", "Đã ghép Mac: \(broker.displayName) · broker nội bộ"))
             }
         }
         brokerDiscovery.start()
@@ -915,9 +1052,9 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             homeCard.isHidden = true
             addressField.text = developerStartURL.absoluteString
             webView.load(URLRequest(url: developerStartURL))
-            updateRouteStatus("Đang mở truyện đã chuẩn bị sẵn…")
+            updateRouteStatus(uiText("Opening the prepared comic…", "Đang mở truyện đã chuẩn bị sẵn…"))
         } else {
-            updateRouteStatus("Dán link truyện để bắt đầu đọc.")
+            updateRouteStatus(uiText("Paste a comic link to start reading.", "Dán link truyện để bắt đầu đọc."))
         }
     }
 
@@ -935,7 +1072,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         view.navigationDelegate = self
         view.scrollView.keyboardDismissMode = .interactive
         view.translatesAutoresizingMaskIntoConstraints = false
-        view.accessibilityLabel = "Trang truyện"
+        view.accessibilityLabel = uiText("Comic page", "Trang truyện")
         return view
     }
 
@@ -988,7 +1125,6 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         addressField.autocapitalizationType = .none
         addressField.autocorrectionType = .no
         addressField.keyboardType = .URL
-        addressField.placeholder = "Dán link chapter"
         addressField.font = .preferredFont(forTextStyle: .subheadline)
         addressField.backgroundColor = UIColor.secondarySystemFill
         addressField.layer.cornerRadius = 10
@@ -997,7 +1133,6 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         addressField.leftView?.contentMode = .center
         addressField.leftView?.frame.size = CGSize(width: 30, height: 30)
         addressField.leftViewMode = .always
-        addressField.accessibilityLabel = "Địa chỉ trang truyện"
         chrome.contentView.addSubview(addressField)
         NSLayoutConstraint.activate([
             backButton.leadingAnchor.constraint(equalTo: chrome.contentView.leadingAnchor, constant: 4),
@@ -1038,12 +1173,10 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private func configureTranslationButton() {
         translateButton.translatesAutoresizingMaskIntoConstraints = false
         translateButton.configuration = .filled()
-        translateButton.configuration?.title = "Dịch phần đang đọc"
         translateButton.configuration?.image = UIImage(systemName: "sparkles")
         translateButton.configuration?.imagePadding = 7
         translateButton.configuration?.cornerStyle = .capsule
         translateButton.addTarget(self, action: #selector(showTranslateMenu), for: .touchUpInside)
-        translateButton.accessibilityHint = "Chọn dịch phần đang xem hoặc toàn bộ ảnh đã tải"
         view.addSubview(translateButton)
         NSLayoutConstraint.activate([
             translateButton.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
@@ -1057,27 +1190,17 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         homeCard.layer.cornerRadius = 18
         homeCard.layer.masksToBounds = true
         view.addSubview(homeCard)
-        let title = UILabel()
-        title.text = "Đọc truyện, dịch đúng chỗ"
-        title.font = .preferredFont(forTextStyle: .title2)
-        title.adjustsFontForContentSizeCategory = true
-        let detail = UILabel()
-        detail.text = "Dán URL chapter. Comic Sub chỉ lưu vị trí đọc khi bạn không dùng Phiên riêng tư."
-        detail.numberOfLines = 0
-        detail.font = .preferredFont(forTextStyle: .body)
-        let paste = UIButton(type: .system)
-        paste.configuration = .filled()
-        paste.configuration?.title = "Dán link truyện"
-        paste.addTarget(self, action: #selector(pasteAndOpen), for: .touchUpInside)
-        let history = UIButton(type: .system)
-        history.configuration = .bordered()
-        history.configuration?.title = "Đọc tiếp"
-        history.addTarget(self, action: #selector(showHistory), for: .touchUpInside)
-        let privateButton = UIButton(type: .system)
-        privateButton.configuration = .plain()
-        privateButton.configuration?.title = "Bắt đầu Phiên riêng tư"
-        privateButton.addTarget(self, action: #selector(startPrivateSession), for: .touchUpInside)
-        let stack = UIStackView(arrangedSubviews: [title, detail, paste, history, privateButton])
+        homeTitleLabel.font = .preferredFont(forTextStyle: .title2)
+        homeTitleLabel.adjustsFontForContentSizeCategory = true
+        homeDetailLabel.numberOfLines = 0
+        homeDetailLabel.font = .preferredFont(forTextStyle: .body)
+        pasteButton.configuration = .filled()
+        pasteButton.addTarget(self, action: #selector(pasteAndOpen), for: .touchUpInside)
+        historyButton.configuration = .bordered()
+        historyButton.addTarget(self, action: #selector(showHistory), for: .touchUpInside)
+        privateSessionButton.configuration = .plain()
+        privateSessionButton.addTarget(self, action: #selector(startPrivateSession), for: .touchUpInside)
+        let stack = UIStackView(arrangedSubviews: [homeTitleLabel, homeDetailLabel, pasteButton, historyButton, privateSessionButton])
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.spacing = 12
@@ -1093,6 +1216,31 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         ])
     }
 
+    private func applyAppLanguage() {
+        title = "Comic Sub"
+        webView.accessibilityLabel = uiText("Comic page", "Trang truyện")
+        addressField.placeholder = uiText("Paste chapter link", "Dán link chapter")
+        addressField.accessibilityLabel = uiText("Comic page address", "Địa chỉ trang truyện")
+        backButton.accessibilityLabel = uiText("Back", "Quay lại")
+        forwardButton.accessibilityLabel = uiText("Forward", "Tiến tới")
+        reloadButton.accessibilityLabel = uiText("Reload", "Tải lại")
+        shareButton.accessibilityLabel = uiText("Share", "Chia sẻ")
+        settingsButton.accessibilityLabel = uiText("Settings", "Cài đặt")
+        translateButton.configuration?.title = uiText("Translate Current", "Dịch phần đang đọc")
+        translateButton.accessibilityHint = uiText(
+            "Choose the visible section or all loaded images.",
+            "Chọn dịch phần đang xem hoặc toàn bộ ảnh đã tải"
+        )
+        homeTitleLabel.text = uiText("Read comics. Translate in place.", "Đọc truyện, dịch đúng chỗ")
+        homeDetailLabel.text = uiText(
+            "Paste a chapter URL. Comic Sub saves your reading position unless you use a Private Session.",
+            "Dán URL chapter. Comic Sub chỉ lưu vị trí đọc khi bạn không dùng Phiên riêng tư."
+        )
+        pasteButton.configuration?.title = uiText("Paste Comic Link", "Dán link truyện")
+        historyButton.configuration?.title = uiText("Continue Reading", "Đọc tiếp")
+        privateSessionButton.configuration?.title = uiText("Start Private Session", "Bắt đầu Phiên riêng tư")
+    }
+
     @objc private func pasteAndOpen() {
         addressField.text = UIPasteboard.general.string
         loadAddress()
@@ -1105,7 +1253,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         let url = webView.url
         configureWebView(privateSession: true, preserving: url)
         homeCard.isHidden = false
-        updateRouteStatus("Phiên riêng tư: không lưu lịch sử, cookie hoặc cache đọc.")
+        updateRouteStatus(uiText("Private Session: history, cookies, and reading cache are not saved.", "Phiên riêng tư: không lưu lịch sử, cookie hoặc cache đọc."))
     }
 
     @objc private func goBack() { webView.goBack() }
@@ -1126,7 +1274,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         guard let input = addressField.text?.trimmingCharacters(in: .whitespacesAndNewlines), !input.isEmpty else { return }
         let urlString = input.contains("://") ? input : "https://\(input)"
         guard let url = URL(string: urlString), ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-            showAlert(title: "Link chưa hợp lệ", message: "Dùng URL http:// hoặc https:// của một chapter.")
+            showAlert(title: uiText("Invalid Link", "Link chưa hợp lệ"), message: uiText("Use an http:// or https:// URL for a chapter.", "Dùng URL http:// hoặc https:// của một chapter."))
             return
         }
         homeCard.isHidden = true
@@ -1134,23 +1282,30 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         currentAnchor = (nil, 0, 0, 0)
         resumeURL = nil
         isTranslatedSession = false
-        updateRouteStatus("Đang mở trang an toàn…")
+        updateRouteStatus(uiText("Opening page safely…", "Đang mở trang an toàn…"))
         webView.load(URLRequest(url: url))
     }
 
     @objc private func showTranslateMenu() {
         guard !candidates.isEmpty else {
-            showAlert(title: "Chưa thấy ảnh truyện", message: "Comic Sub đang tìm ảnh lớn trong trang. Ảnh canvas, DRM hoặc reader chặn truy cập sẽ không được lấy tự động.")
+            showAlert(
+                title: uiText("No Comic Images Yet", "Chưa thấy ảnh truyện"),
+                message: uiText("Comic Sub is looking for large images on this page. Canvas, DRM, or reader-blocked images cannot be acquired automatically.", "Comic Sub đang tìm ảnh lớn trong trang. Ảnh canvas, DRM hoặc reader chặn truy cập sẽ không được lấy tự động.")
+            )
             return
         }
-        let sheet = UIAlertController(title: "Dịch truyện", message: "\(candidates.count) ảnh đang tải trong trang này. Ảnh xuất hiện sau sẽ chờ một đợt mới và không tự tính phí.", preferredStyle: .actionSheet)
-        sheet.addAction(UIAlertAction(title: "Dịch phần đang đọc", style: .default) { _ in self.beginTranslation(scope: .visible) })
-        sheet.addAction(UIAlertAction(title: "Dịch toàn bộ ảnh hiện có", style: .default) { _ in self.showAllPreflight() })
-        sheet.addAction(UIAlertAction(title: "Hiện ảnh gốc", style: .default) { _ in self.updateRouteStatus("Ảnh gốc luôn được giữ nguyên trong WebView.") })
+        let sheet = UIAlertController(
+            title: uiText("Translate Comic", "Dịch truyện"),
+            message: uiText("\(candidates.count) images are currently loaded. Images that appear later wait for a new batch and are never charged automatically.", "\(candidates.count) ảnh đang tải trong trang này. Ảnh xuất hiện sau sẽ chờ một đợt mới và không tự tính phí."),
+            preferredStyle: .actionSheet
+        )
+        sheet.addAction(UIAlertAction(title: uiText("Translate Current Section", "Dịch phần đang đọc"), style: .default) { _ in self.beginTranslation(scope: .visible) })
+        sheet.addAction(UIAlertAction(title: uiText("Translate All Loaded Images", "Dịch toàn bộ ảnh hiện có"), style: .default) { _ in self.showAllPreflight() })
+        sheet.addAction(UIAlertAction(title: uiText("Show Original Images", "Hiện ảnh gốc"), style: .default) { _ in self.updateRouteStatus(uiText("Original images are always preserved in the WebView.", "Ảnh gốc luôn được giữ nguyên trong WebView.")) })
         if !activeJobIDs.isEmpty {
-            sheet.addAction(UIAlertAction(title: "Huỷ job đang chạy", style: .destructive) { _ in self.cancelActiveTranslation() })
+            sheet.addAction(UIAlertAction(title: uiText("Cancel Running Job", "Huỷ job đang chạy"), style: .destructive) { _ in self.cancelActiveTranslation() })
         }
-        sheet.addAction(UIAlertAction(title: "Huỷ", style: .cancel))
+        sheet.addAction(UIAlertAction(title: uiText("Cancel", "Huỷ"), style: .cancel))
         if let popover = sheet.popoverPresentationController { popover.sourceView = translateButton; popover.sourceRect = translateButton.bounds }
         present(sheet, animated: true)
     }
@@ -1158,10 +1313,13 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private func showAllPreflight() {
         let estimate = max(1, candidates.count / 5)
         let route = currentRouteLabel()
-        let message = "Dịch \(candidates.count) ảnh đang tải trong trang này. Ước tính \(estimate)–\(estimate * 2) phút · \(route). Ảnh mới sẽ không tự vào job này."
-        let alert = UIAlertController(title: "Xác nhận dịch toàn bộ", message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Dịch \(candidates.count) ảnh", style: .default) { _ in self.beginTranslation(scope: .all) })
-        alert.addAction(UIAlertAction(title: "Huỷ", style: .cancel))
+        let message = uiText(
+            "Translate \(candidates.count) currently loaded images. Estimated \(estimate)–\(estimate * 2) minutes · \(route). New images will not join this job automatically.",
+            "Dịch \(candidates.count) ảnh đang tải trong trang này. Ước tính \(estimate)–\(estimate * 2) phút · \(route). Ảnh mới sẽ không tự vào job này."
+        )
+        let alert = UIAlertController(title: uiText("Confirm Translate All", "Xác nhận dịch toàn bộ"), message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: uiText("Translate \(candidates.count) Images", "Dịch \(candidates.count) ảnh"), style: .default) { _ in self.beginTranslation(scope: .all) })
+        alert.addAction(UIAlertAction(title: uiText("Cancel", "Huỷ"), style: .cancel))
         present(alert, animated: true)
     }
 
@@ -1171,14 +1329,14 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         let selected: [WebCandidate]
         switch scope {
         case .visible:
-            selected = candidates.filter { $0.index >= currentAnchor.index }.prefix(max(1, settings.lookAhead + 1)).map { $0 }
+            selected = candidates.first(where: { $0.index >= currentAnchor.index }).map { [$0] } ?? []
         case .all: selected = candidates
         }
         guard !selected.isEmpty else { return }
         cancelActiveTranslation(silent: true)
         isTranslatedSession = true
         let navigation = navigationID
-        updateRouteStatus("Đang đăng ký \(selected.count) ảnh · \(currentRouteLabel())")
+        updateRouteStatus(uiText("Registering \(selected.count) images · \(currentRouteLabel())", "Đang đăng ký \(selected.count) ảnh · \(currentRouteLabel())"))
         translationTask = Task { [weak self] in
             guard let self else { return }
             await self.translate(selected, navigationID: navigation)
@@ -1187,74 +1345,197 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
 
     private func translate(_ selected: [WebCandidate], navigationID expectedNavigationID: String) async {
         do {
-            guard let pageURL = webView.url, pageURL.scheme?.hasPrefix("http") == true else { throw BrokerError.request("Trang truyện chưa có URL hợp lệ.") }
-            let client = try BrokerClient(endpoint: brokerEndpoint, token: settingsStore.loadToken(), deviceID: deviceID, discoveredBroker: discoveredBroker)
-            activeBroker = client
+            guard let pageURL = webView.url, pageURL.scheme?.hasPrefix("http") == true else { throw BrokerError.request(uiText("The comic page does not have a valid URL.", "Trang truyện chưa có URL hợp lệ.")) }
             let isClientDevice = try await routeContract()
             let series = seriesContext(for: pageURL)
+            if isClientDevice {
+                try await translateFullyOnDevice(
+                    selected,
+                    pageURL: pageURL,
+                    series: series,
+                    navigationID: expectedNavigationID
+                )
+                saveCurrentProgress(force: true)
+                activeJobIDs.removeAll(); activeBroker = nil; translationTask = nil
+                return
+            }
+
+            let client = try BrokerClient(endpoint: brokerEndpoint, token: settingsStore.loadToken(), deviceID: deviceID, discoveredBroker: discoveredBroker)
+            activeBroker = client
+            let usesManagedCloud = [.automatic, .managedCloud].contains(settings.route)
             let glossary = try await latestSeriesGlossary(client: client, series: series)
-            updateRouteStatus(isClientDevice
-                ? "OCR/bố cục sẽ dùng broker; chỉ dịch văn bản chạy trên thiết bị."
-                : (settings.route == .managedCloud
-                    ? "Ảnh đã chọn sẽ gửi tới Managed Cloud sau khi batch được đăng ký."
-                    : "Ảnh đã chọn sẽ gửi tới broker/server riêng sau khi batch được đăng ký."))
+            updateRouteStatus(usesManagedCloud
+                ? uiText("Selected images are sent to Managed Cloud after the batch is registered.", "Ảnh đã chọn sẽ gửi tới Managed Cloud sau khi batch được đăng ký.")
+                : uiText("Selected images are sent to the broker/private server after the batch is registered.", "Ảnh đã chọn sẽ gửi tới broker/server riêng sau khi batch được đăng ký."))
             try Task.checkCancellation()
             let snapshotID = "snapshot-\(UUID().uuidString)"
             let snapshot = makeSnapshot(snapshotID: snapshotID, candidates: selected, pageURL: pageURL)
             try await client.registerSnapshot(snapshot)
             try Task.checkCancellation()
-            let request = makeBatchRequest(snapshotID: snapshotID, candidates: selected, clientDevice: isClientDevice, glossary: glossary)
+            let request = makeBatchRequest(snapshotID: snapshotID, candidates: selected, clientDevice: false, glossary: glossary)
             let batch = try await client.createBatch(request, idempotencyKey: "ios-\(UUID().uuidString)")
             activeJobIDs = Set(batch.jobIds)
-            guard batch.jobs.count == selected.count else { throw BrokerError.request("Broker trả batch không đầy đủ.") }
-            for (offset, job) in batch.jobs.enumerated() {
-                try Task.checkCancellation()
-                guard navigationID == expectedNavigationID else { throw BrokerError.cancelled }
-                let candidate = selected[offset]
-                guard job.candidateId == candidate.id else { throw BrokerError.request("Broker ghép sai ảnh trong snapshot.") }
-                updateRouteStatus("Đang lấy ảnh \(offset + 1)/\(selected.count) một cách an toàn…")
-                let image = try await BoundedImageFetcher().fetch(candidate: candidate, pageURL: pageURL, store: webView.configuration.websiteDataStore)
-                try Task.checkCancellation()
-                updateRouteStatus("Đã xác minh SHA-256 · đang dịch ảnh \(offset + 1)/\(selected.count)…")
-                try await client.upload(jobID: job.jobId, image: image)
-                let settled = try await pollSettled(client: client, jobID: job.jobId)
-                guard settled.state == "SETTLED" else { throw BrokerError.request("Job kết thúc ở trạng thái \(settled.state).") }
-                var result = try await client.result(job.jobId)
-                try verifyReceipt(result.modelReceipt, clientDevice: isClientDevice)
-                if isClientDevice {
-                    let source = result.overlayRegions.map(\.source)
-                    let translated = try await translateOnDevice(source)
-                    guard translated.count == result.overlayRegions.count else { throw BrokerError.request("Apple Translation trả thiếu vùng văn bản.") }
-                    for index in result.overlayRegions.indices { result.overlayRegions[index].translation = translated[index] }
-                    attachRegions(result, to: candidate)
-                } else {
-                    let asset = try await client.renderedAsset(result)
-                    attachRendered(asset, mimeType: result.renderedAsset.contentType, result: result, to: candidate)
+            guard batch.jobs.count == selected.count else { throw BrokerError.request(uiText("The broker returned an incomplete batch.", "Broker trả batch không đầy đủ.")) }
+            let indexedJobs = Array(batch.jobs.enumerated())
+            for windowStart in stride(from: 0, to: indexedJobs.count, by: 4) {
+                let window = Array(indexedJobs[windowStart..<min(windowStart + 4, indexedJobs.count)])
+                var acquired: [Int: AcquiredImage] = [:]
+                for (offset, job) in window {
+                    try Task.checkCancellation()
+                    guard navigationID == expectedNavigationID else { throw BrokerError.cancelled }
+                    let candidate = selected[offset]
+                    guard job.candidateId == candidate.id else { throw BrokerError.request(uiText("The broker matched the wrong snapshot image.", "Broker ghép sai ảnh trong snapshot.")) }
+                    updateRouteStatus(uiText(
+                        "Preparing page \(offset + 1)/\(selected.count)…",
+                        "Đang chuẩn bị trang \(offset + 1)/\(selected.count)…"
+                    ))
+                    acquired[offset] = try await BoundedImageFetcher().fetch(
+                        candidate: candidate,
+                        pageURL: pageURL,
+                        store: webView.configuration.websiteDataStore
+                    )
                 }
-                recordSuccessfulTranslation(result, series: series, client: client)
-                activeJobIDs.remove(job.jobId)
-                updateRouteStatus("Đã dịch \(offset + 1)/\(selected.count) · \(result.modelReceipt.resolvedProvider)/\(result.modelReceipt.resolvedModel)")
+                updateRouteStatus(uiText(
+                    "Reading and translating \(window.count) page\(window.count == 1 ? "" : "s") together…",
+                    "Đang OCR và dịch chung \(window.count) trang…"
+                ))
+                try await withThrowingTaskGroup(of: Void.self) { group in
+                    for (offset, job) in window {
+                        guard let image = acquired[offset] else { continue }
+                        group.addTask { try await client.upload(jobID: job.jobId, image: image) }
+                    }
+                    try await group.waitForAll()
+                }
+                for (offset, job) in window {
+                    try Task.checkCancellation()
+                    guard navigationID == expectedNavigationID else { throw BrokerError.cancelled }
+                    let settled = try await pollSettled(client: client, jobID: job.jobId)
+                    guard settled.state == "SETTLED" else { throw BrokerError.request(uiText("The job ended in state \(settled.state).", "Job kết thúc ở trạng thái \(settled.state).")) }
+                    let result = try await client.result(job.jobId)
+                    try verifyReceipt(result.modelReceipt, clientDevice: false)
+                    attachRegions(result, to: selected[offset])
+                    recordSuccessfulTranslation(result, series: series, client: client)
+                    activeJobIDs.remove(job.jobId)
+                    updateRouteStatus(uiText(
+                        "Page \(offset + 1)/\(selected.count) ready",
+                        "Trang \(offset + 1)/\(selected.count) đã sẵn sàng"
+                    ))
+                }
             }
             saveCurrentProgress(force: true)
         } catch is CancellationError {
-            updateRouteStatus("Đã huỷ bản dịch. Ảnh gốc vẫn hiển thị.")
+            updateRouteStatus(uiText("Translation cancelled. Original images remain visible.", "Đã huỷ bản dịch. Ảnh gốc vẫn hiển thị."))
         } catch let error as BrokerError {
             if case .cancelled = error {
-                updateRouteStatus("Đã huỷ bản dịch. Ảnh gốc vẫn hiển thị.")
+                updateRouteStatus(uiText("Translation cancelled. Original images remain visible.", "Đã huỷ bản dịch. Ảnh gốc vẫn hiển thị."))
             } else {
-                updateRouteStatus("Không dịch được. Ảnh gốc vẫn hiển thị.")
-                showAlert(title: "Bản dịch chưa hoàn tất", message: error.localizedDescription)
+                updateRouteStatus(uiText("Translation failed. Original images remain visible.", "Không dịch được. Ảnh gốc vẫn hiển thị."))
+                showAlert(title: uiText("Translation Incomplete", "Bản dịch chưa hoàn tất"), message: error.localizedDescription)
             }
         } catch {
-            updateRouteStatus("Không dịch được. Ảnh gốc vẫn hiển thị.")
-            showAlert(title: "Bản dịch chưa hoàn tất", message: error.localizedDescription)
+            updateRouteStatus(uiText("Translation failed. Original images remain visible.", "Không dịch được. Ảnh gốc vẫn hiển thị."))
+            showAlert(title: uiText("Translation Incomplete", "Bản dịch chưa hoàn tất"), message: error.localizedDescription)
         }
         activeJobIDs.removeAll(); activeBroker = nil; translationTask = nil
     }
 
+    private func translateFullyOnDevice(
+        _ selected: [WebCandidate],
+        pageURL: URL,
+        series: SeriesContext,
+        navigationID expectedNavigationID: String
+    ) async throws {
+        let continuity = seededContinuity(for: series)
+        let exactTerms = Dictionary(continuity.map {
+            ($0.sourceTerm.trimmingCharacters(in: .whitespacesAndNewlines), $0.targetTerm)
+        }, uniquingKeysWith: { current, _ in current })
+
+        for (offset, candidate) in selected.enumerated() {
+            try Task.checkCancellation()
+            guard navigationID == expectedNavigationID else { throw BrokerError.cancelled }
+            updateRouteStatus(uiText(
+                "Loading image \(offset + 1)/\(selected.count) for on-device OCR…",
+                "Đang lấy ảnh \(offset + 1)/\(selected.count) để OCR trên thiết bị…"
+            ))
+            let image = try await BoundedImageFetcher().fetch(
+                candidate: candidate,
+                pageURL: pageURL,
+                store: webView.configuration.websiteDataStore
+            )
+            try Task.checkCancellation()
+            updateRouteStatus(uiText(
+                "Finding text with Apple Vision · image \(offset + 1)/\(selected.count)…",
+                "Đang tìm chữ bằng Apple Vision · ảnh \(offset + 1)/\(selected.count)…"
+            ))
+            var recognized = try await onDeviceOCR.recognize(image, sourceLanguage: settings.sourceLanguage)
+            guard !recognized.regions.isEmpty else {
+                updateRouteStatus(uiText(
+                    "No text found in image \(offset + 1). Original image preserved.",
+                    "Không thấy chữ trong ảnh \(offset + 1). Ảnh gốc vẫn được giữ."
+                ))
+                continue
+            }
+
+            var pendingIndexes: [Int] = []
+            var pendingTexts: [String] = []
+            for index in recognized.regions.indices {
+                let source = recognized.regions[index].source.trimmingCharacters(in: .whitespacesAndNewlines)
+                if let established = exactTerms[source] {
+                    recognized.regions[index].translation = established
+                } else {
+                    pendingIndexes.append(index)
+                    pendingTexts.append(source)
+                }
+            }
+            if !pendingTexts.isEmpty {
+                let translated = try await translateOnDevice(pendingTexts)
+                guard translated.count == pendingIndexes.count else {
+                    throw BrokerError.request(uiText(
+                        "Apple Translation returned fewer text regions than expected.",
+                        "Apple Translation trả thiếu vùng văn bản."
+                    ))
+                }
+                for (translatedIndex, regionIndex) in pendingIndexes.enumerated() {
+                    recognized.regions[regionIndex].translation = translated[translatedIndex]
+                }
+            }
+
+            let result = BrokerResult(
+                jobId: "on-device-\(UUID().uuidString)",
+                candidateId: candidate.id,
+                page: recognized.page,
+                overlayRegions: recognized.regions,
+                renderedAsset: BrokerAsset(contentType: "application/octet-stream", byteLength: 0, sha256: "", url: ""),
+                modelReceipt: ModelReceipt(
+                    requestedProvider: "apple",
+                    requestedModel: "vision-text-recognition+apple-translation",
+                    resolvedProvider: "apple",
+                    resolvedModel: "vision-text-recognition+apple-translation",
+                    providerReportedModel: "vision-text-recognition+apple-translation",
+                    executionFingerprint: "on-device",
+                    modelMatched: true
+                )
+            )
+            attachRegions(result, to: candidate)
+            mergeContinuity(recognized.regions.map {
+                SeriesTerm(sourceTerm: $0.source, targetTerm: $0.translation, confidence: $0.confidence ?? 0.8)
+            }, into: series)
+            updateRouteStatus(uiText(
+                "Translated \(offset + 1)/\(selected.count) entirely on device · Apple Vision + Translation",
+                "Đã dịch \(offset + 1)/\(selected.count) hoàn toàn trên thiết bị · Apple Vision + Translation"
+            ))
+        }
+    }
+
     private func routeContract() async throws -> Bool {
         switch settings.route {
-        case .onDevice, .automatic:
+        case .automatic:
+            if !settingsStore.loadToken().isEmpty,
+               BrokerEndpointPolicy.allows(brokerEndpoint, discovered: discoveredBroker) {
+                return false
+            }
+            fallthrough
+        case .onDevice:
             let state = await translationCapability.check(source: settings.sourceLanguage, target: settings.targetLanguage)
             guard state == .installed else {
                 if state == .downloadable { presentLanguageDownload() }
@@ -1290,7 +1571,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         if clientDevice {
             request = ["locus": "on-device", "profile": "balanced", "provider": "apple", "model": "apple-translation", "allowedFallbacks": []]
         } else {
-            let locus = settings.route == .managedCloud ? "managed" : "private-server"
+            let locus = [.automatic, .managedCloud].contains(settings.route) ? "managed" : "private-server"
             request = ["locus": locus, "profile": "balanced", "provider": "gemini", "model": "gemini-3.6-flash", "allowedFallbacks": []]
         }
         return [
@@ -1300,7 +1581,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             "translationStyle": "natural-dialogue",
             "glossarySnapshot": ["id": glossary.id, "version": glossary.version, "hash": glossary.hash],
             "privacyPolicyVersion": settings.privateSession ? "private-v1" : "reader-v1",
-            "budget": ["currency": "USD", "maxMicros": settings.route == .managedCloud ? 500_000 : 0],
+            "budget": ["currency": "USD", "maxMicros": [.automatic, .managedCloud].contains(settings.route) ? 500_000 : 0],
         ]
     }
 
@@ -1317,7 +1598,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             with: "",
             options: .regularExpression
         ).trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalizedTitle = (titleWithoutChapter.isEmpty ? (pageURL.host ?? "Truyện chưa đặt tên") : titleWithoutChapter)
+        let normalizedTitle = (titleWithoutChapter.isEmpty ? (pageURL.host ?? uiText("Untitled comic", "Truyện chưa đặt tên")) : titleWithoutChapter)
             .folding(options: [.diacriticInsensitive, .widthInsensitive], locale: .current)
             .trimmingCharacters(in: .whitespacesAndNewlines)
         let known = knownSeriesMetadata(for: pageURL, targetLanguage: targetLanguage)
@@ -1482,14 +1763,14 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
 
     private func glossaryPresentation(for series: SeriesContext, researchState: String? = nil) -> SeriesGlossaryPresentation {
         let local = seededContinuity(for: series).map {
-            SeriesGlossaryItem(sourceTerm: $0.sourceTerm, targetTerm: $0.targetTerm, confidence: $0.confidence, origin: "Trên máy", status: "active")
+            SeriesGlossaryItem(sourceTerm: $0.sourceTerm, targetTerm: $0.targetTerm, confidence: $0.confidence, origin: "local", status: "active")
         }
         let remote = (glossarySnapshots[series.id]?.entries ?? []).map {
             SeriesGlossaryItem(
                 sourceTerm: $0.sourceTerm,
                 targetTerm: $0.targetTerm,
                 confidence: $0.confidence ?? 0.8,
-                origin: $0.origin == "external-research" ? "Nguồn công khai" : "Đã học",
+                origin: $0.origin == "external-research" ? "public" : "learned",
                 status: $0.status ?? "active"
             )
         }
@@ -1512,11 +1793,11 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
 
     private func researchSeriesGlossary(_ series: SeriesContext) async throws -> SeriesGlossaryPresentation {
         guard !settings.privateSession else {
-            throw BrokerError.request("Tắt phiên riêng tư để AI tra cứu tên truyện từ nguồn công khai.")
+            throw BrokerError.request(uiText("Turn off Private Session to let AI research series names from public sources.", "Tắt phiên riêng tư để AI tra cứu tên truyện từ nguồn công khai."))
         }
         let token = settingsStore.loadToken()
         guard !token.isEmpty else {
-            throw BrokerError.request("Chưa có token broker. Vào Cài đặt → Token broker rồi thử lại.")
+            throw BrokerError.request(uiText("No broker token is configured. Open Settings → Broker Token and try again.", "Chưa có token broker. Vào Cài đặt → Token broker rồi thử lại."))
         }
         let client = try BrokerClient(endpoint: brokerEndpoint, token: token, deviceID: deviceID, discoveredBroker: discoveredBroker)
         seriesConsentStore.save(.granted, for: series.id)
@@ -1548,14 +1829,17 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             return
         }
         let alert = UIAlertController(
-            title: "Nhớ tên riêng cho bộ này?",
-            message: "Từ trang sau, Comic Sub sẽ tự giữ cách gọi đã dịch. Bạn có thể cho phép tra cứu công khai theo tên bộ truyện và ngôn ngữ đích; không gửi URL chapter, ảnh, OCR hay lịch sử đọc.",
+            title: uiText("Remember Names for This Series?", "Nhớ tên riêng cho bộ này?"),
+            message: uiText(
+                "Comic Sub will keep translated names consistent from the next page. You may allow public research using only the series title and target language; chapter URLs, images, OCR, and reading history are never sent.",
+                "Từ trang sau, Comic Sub sẽ tự giữ cách gọi đã dịch. Bạn có thể cho phép tra cứu công khai theo tên bộ truyện và ngôn ngữ đích; không gửi URL chapter, ảnh, OCR hay lịch sử đọc."
+            ),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "Cho phép tra cứu", style: .default) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: uiText("Allow Research", "Cho phép tra cứu"), style: .default) { [weak self] _ in
             self?.saveSeriesConsent(.granted, series: series, client: client)
         })
-        alert.addAction(UIAlertAction(title: "Chỉ dùng liên tục cục bộ", style: .cancel) { [weak self] _ in
+        alert.addAction(UIAlertAction(title: uiText("Keep On Device Only", "Chỉ dùng liên tục cục bộ"), style: .cancel) { [weak self] _ in
             self?.saveSeriesConsent(.declined, series: series, client: client)
         })
         present(alert, animated: true)
@@ -1577,10 +1861,10 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             try Task.checkCancellation()
             let job = try await client.job(jobID)
             if job.state == "SETTLED" { return job }
-            if ["FAILED", "CANCELLED", "REJECTED", "EXPIRED"].contains(job.state) { throw BrokerError.request("Broker dừng job: \(job.state).") }
+            if ["FAILED", "CANCELLED", "REJECTED", "EXPIRED"].contains(job.state) { throw BrokerError.request(uiText("The broker stopped the job: \(job.state).", "Broker dừng job: \(job.state).")) }
             try await Task.sleep(nanoseconds: 700_000_000)
         }
-        throw BrokerError.request("Broker quá thời gian 3 phút.")
+        throw BrokerError.request(uiText("The broker timed out after 3 minutes.", "Broker quá thời gian 3 phút."))
     }
 
     private func verifyReceipt(_ receipt: ModelReceipt, clientDevice: Bool) throws {
@@ -1602,7 +1886,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         let jobs = activeJobIDs; let broker = activeBroker
         activeJobIDs.removeAll()
         Task { for job in jobs { await broker?.cancel(job) } }
-        if !silent { updateRouteStatus("Đang huỷ job; ảnh gốc vẫn hiển thị.") }
+        if !silent { updateRouteStatus(uiText("Cancelling job; original images remain visible.", "Đang huỷ job; ảnh gốc vẫn hiển thị.")) }
     }
 
     private func attachRendered(_ bytes: Data, mimeType: String, result: BrokerResult, to candidate: WebCandidate) {
@@ -1621,7 +1905,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
 
     private func evaluateBridge(_ script: String) {
         webView.evaluateJavaScript(script) { [weak self] result, error in
-            if error != nil || (result as? Bool) == false { self?.updateRouteStatus("Không gắn được overlay; ảnh gốc vẫn hiển thị.") }
+            if error != nil || (result as? Bool) == false { self?.updateRouteStatus(uiText("Could not attach the overlay; original images remain visible.", "Không gắn được overlay; ảnh gốc vẫn hiển thị.")) }
         }
     }
 
@@ -1639,7 +1923,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private func translateOnDevice(_ texts: [String]) async throws -> [String] {
         guard !texts.isEmpty else { return [] }
         #if canImport(Translation) && canImport(SwiftUI)
-        guard #available(iOS 18.0, *) else { throw BrokerError.request("Apple Translation cần iOS 18 trở lên.") }
+        guard #available(iOS 18.0, *) else { throw BrokerError.request(uiText("Apple Translation requires iOS 18 or later.", "Apple Translation cần iOS 18 trở lên.")) }
         return try await withCheckedThrowingContinuation { continuation in
             let view = ClientRegionTranslationView(source: settings.sourceLanguage, target: settings.targetLanguage, texts: texts) { [weak self] result in
                 self?.translationHost?.dismiss(animated: true)
@@ -1651,25 +1935,27 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             present(host, animated: true)
         }
         #else
-        throw BrokerError.request("SDK này không có Apple Translation.")
+        throw BrokerError.request(uiText("Apple Translation is unavailable in this SDK.", "SDK này không có Apple Translation."))
         #endif
     }
 
     private func presentLanguageDownload() {
         #if canImport(Translation) && canImport(SwiftUI)
         guard #available(iOS 18.0, *) else {
-            showAlert(title: "Cần iOS mới hơn", message: "Apple Translation chỉ khả dụng từ iOS 18. Comic Sub sẽ không tự gửi trang lên Cloud.")
+            showAlert(title: uiText("Newer iOS Required", "Cần iOS mới hơn"), message: uiText("Apple Translation is available on iOS 18 or later. Comic Sub will not send the page to Cloud automatically.", "Apple Translation chỉ khả dụng từ iOS 18. Comic Sub sẽ không tự gửi trang lên Cloud."))
             return
         }
         let preparation = TranslationPreparationView(source: settings.sourceLanguage, target: settings.targetLanguage) { [weak self] success in
             guard let self else { return }
-            self.updateRouteStatus(success ? "Gói ngôn ngữ đã sẵn sàng. Chọn Dịch lại để chạy tuyến on-device." : "Không tải được gói ngôn ngữ. Ảnh gốc vẫn đang đọc được.")
+            self.updateRouteStatus(success
+                ? uiText("The language pack is ready. Choose Translate again to use the on-device route.", "Gói ngôn ngữ đã sẵn sàng. Chọn Dịch lại để chạy tuyến on-device.")
+                : uiText("The language pack could not be downloaded. Original images remain readable.", "Không tải được gói ngôn ngữ. Ảnh gốc vẫn đang đọc được."))
         }
         let host = UIHostingController(rootView: preparation)
         host.modalPresentationStyle = .formSheet
         present(host, animated: true)
         #else
-        showAlert(title: "Không có Apple Translation", message: "SDK này không có Apple Translation. Comic Sub sẽ không tự gửi trang lên Cloud.")
+        showAlert(title: uiText("Apple Translation Unavailable", "Không có Apple Translation"), message: uiText("Apple Translation is unavailable in this SDK. Comic Sub will not send the page to Cloud automatically.", "SDK này không có Apple Translation. Comic Sub sẽ không tự gửi trang lên Cloud."))
         #endif
     }
 
@@ -1681,6 +1967,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         let controller = ReaderSettingsController(
             settings: settings,
             token: settingsStore.loadToken(),
+            appLanguage: AppLanguageStore.shared.load(),
             brokerConnection: brokerConnectionLabel,
             currentSeriesTitle: currentSeriesTitle,
             makeGlossaryController: { [weak self] targetLanguage in
@@ -1694,22 +1981,33 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                     }
                 )
             }
-        ) { [weak self] updated, token, needsWebViewReset in
+        ) { [weak self] updated, token, appLanguage, needsWebViewReset in
             guard let self else { return }
             let oldPrivate = self.settings.privateSession
             self.settings = updated
             self.settingsStore.save(updated)
             self.settingsStore.saveToken(token)
+            AppLanguageStore.shared.save(appLanguage)
+            self.applyAppLanguage()
             if needsWebViewReset || oldPrivate != updated.privateSession {
                 self.configureWebView(privateSession: updated.privateSession, preserving: self.webView.url)
             }
-            self.updateRouteStatus(updated.privateSession ? "Phiên riêng tư: không lưu lịch sử." : "Đã lưu cài đặt cho thiết bị này.")
+            self.updateRouteStatus(updated.privateSession
+                ? uiText("Private Session: history is not saved.", "Phiên riêng tư: không lưu lịch sử.")
+                : uiText("Settings saved on this device.", "Đã lưu cài đặt cho thiết bị này."))
         }
         present(UINavigationController(rootViewController: controller), animated: true)
     }
 
     private func languageName(_ value: String) -> String {
-        ["vi": "Tiếng Việt", "en": "English", "ja": "日本語", "ko": "한국어", "zh-Hans": "中文 (Giản thể)", "zh-Hant": "中文 (Phồn thể)"][value] ?? value
+        [
+            "vi": "Tiếng Việt",
+            "en": "English",
+            "ja": "日本語",
+            "ko": "한국어",
+            "zh-Hans": uiText("中文 (Simplified)", "中文 (Giản thể)"),
+            "zh-Hant": uiText("中文 (Traditional)", "中文 (Phồn thể)"),
+        ][value] ?? value
     }
 
     @objc private func showHistory() {
@@ -1725,7 +2023,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     }
 
     private func updateRouteStatus(_ text: String) {
-        let privacy = settings.privateSession ? " · Riêng tư" : ""
+        let privacy = settings.privateSession ? uiText(" · Private", " · Riêng tư") : ""
         statusLabel.text = "  \(text)\(privacy)  "
         statusLabel.accessibilityValue = text
     }
@@ -1733,9 +2031,9 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private func currentRouteLabel() -> String {
         let target = settings.targetLanguage == "vi" ? "VI" : settings.targetLanguage.uppercased()
         switch settings.route {
-        case .automatic: return "\(target) · Tự chọn"
-        case .onDevice: return "\(target) · Văn bản trên thiết bị"
-        case .privateServer: return "\(target) · Server riêng"
+        case .automatic: return uiText("\(target) · Automatic", "\(target) · Tự chọn")
+        case .onDevice: return uiText("\(target) · On-device text", "\(target) · Văn bản trên thiết bị")
+        case .privateServer: return uiText("\(target) · Private Server", "\(target) · Server riêng")
         case .managedCloud: return "\(target) · Managed Cloud"
         }
     }
@@ -1746,7 +2044,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
 
     private var brokerConnectionLabel: String {
         if let discoveredBroker { return "Mac: \(discoveredBroker.displayName)" }
-        return URL(string: brokerEndpoint)?.host ?? "không hợp lệ"
+        return URL(string: brokerEndpoint)?.host ?? uiText("invalid", "không hợp lệ")
     }
 
     private func saveCurrentProgress(force: Bool = false) {
@@ -1755,7 +2053,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         let save = { [weak self] in
             guard let self else { return }
             let entry = ReadingHistoryEntry(
-                id: UUID(), url: ReadingHistoryEntry.sanitizedURL(url), title: self.pageTitle.isEmpty ? (url.host ?? "Trang truyện") : self.pageTitle,
+                id: UUID(), url: ReadingHistoryEntry.sanitizedURL(url), title: self.pageTitle.isEmpty ? (url.host ?? uiText("Comic page", "Trang truyện")) : self.pageTitle,
                 candidateID: self.currentAnchor.id, candidateIndex: self.currentAnchor.index,
                 intraImageRatio: self.currentAnchor.ratio, fallbackScrollRatio: self.currentAnchor.scrollRatio,
                 targetLanguage: self.settings.targetLanguage, translated: self.isTranslatedSession, lastOpened: Date()
@@ -1772,11 +2070,11 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         webView.evaluateJavaScript("window.__comicSubReaderBridge && window.__comicSubReaderBridge.scrollToCandidate('" + escaped + "')") { [weak self] result, _ in
             guard let self else { return }
             if (result as? Bool) == true {
-                self.updateRouteStatus("Đã tiếp tục gần vị trí đọc trước đó.")
+                self.updateRouteStatus(uiText("Resumed near your previous reading position.", "Đã tiếp tục gần vị trí đọc trước đó."))
                 self.resumeURL = nil
             } else if self.currentAnchor.scrollRatio > 0 {
                 self.webView.evaluateJavaScript("window.scrollTo(0, document.documentElement.scrollHeight * \(self.currentAnchor.scrollRatio));")
-                self.updateRouteStatus("Trang đã thay đổi; đã khôi phục vị trí gần nhất.")
+                self.updateRouteStatus(uiText("The page changed; restored the nearest reading position.", "Trang đã thay đổi; đã khôi phục vị trí gần nhất."))
                 self.resumeURL = nil
             }
         }
@@ -1784,7 +2082,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
 
     private func showAlert(title: String, message: String) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Đã hiểu", style: .default))
+        alert.addAction(UIAlertAction(title: uiText("OK", "Đã hiểu"), style: .default))
         present(alert, animated: true)
     }
 
@@ -1793,7 +2091,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
         cancelActiveTranslation(silent: true)
         navigationID = "navigation-\(UUID().uuidString)"
-        updateRouteStatus("Đang mở trang…")
+        updateRouteStatus(uiText("Opening page…", "Đang mở trang…"))
         candidates = []
     }
 
@@ -1801,12 +2099,12 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         addressField.text = webView.url?.absoluteString
         backButton.isEnabled = webView.canGoBack
         forwardButton.isEnabled = webView.canGoForward
-        updateRouteStatus("Đang tìm ảnh truyện — chưa gửi dữ liệu đi.")
+        updateRouteStatus(uiText("Looking for comic images — no data has been sent.", "Đang tìm ảnh truyện — chưa gửi dữ liệu đi."))
         saveCurrentProgress()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        updateRouteStatus("Không mở được trang. Ảnh và lịch sử không bị gửi đi.")
+        updateRouteStatus(uiText("Could not open the page. Images and history were not sent.", "Không mở được trang. Ảnh và lịch sử không bị gửi đi."))
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
@@ -1827,7 +2125,9 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             guard let raw = body["candidates"], let data = try? JSONSerialization.data(withJSONObject: raw),
                   let decoded = try? JSONDecoder().decode([WebCandidate].self, from: data) else { return }
             candidates = decoded
-            updateRouteStatus(decoded.isEmpty ? "Chưa thấy ảnh truyện phù hợp. Canvas/DRM có thể không được hỗ trợ." : "\(decoded.count) ảnh truyện sẵn sàng · \(currentRouteLabel())")
+            updateRouteStatus(decoded.isEmpty
+                ? uiText("No eligible comic images found. Canvas/DRM may be unsupported.", "Chưa thấy ảnh truyện phù hợp. Canvas/DRM có thể không được hỗ trợ.")
+                : uiText("\(decoded.count) comic images ready · \(currentRouteLabel())", "\(decoded.count) ảnh truyện sẵn sàng · \(currentRouteLabel())"))
             resumeIfNeeded()
         case "anchor":
             currentAnchor = (
@@ -1845,66 +2145,86 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
 private final class ReaderSettingsController: UITableViewController {
     private var settings: ReaderSettings
     private var token: String
+    private var appLanguage: AppLanguage
     private let brokerConnection: String
     private let currentSeriesTitle: String?
     private let makeGlossaryController: (String) -> UIViewController?
-    private let onSave: (ReaderSettings, String, Bool) -> Void
+    private let onSave: (ReaderSettings, String, AppLanguage, Bool) -> Void
 
     init(
         settings: ReaderSettings,
         token: String,
+        appLanguage: AppLanguage,
         brokerConnection: String,
         currentSeriesTitle: String?,
         makeGlossaryController: @escaping (String) -> UIViewController?,
-        onSave: @escaping (ReaderSettings, String, Bool) -> Void
+        onSave: @escaping (ReaderSettings, String, AppLanguage, Bool) -> Void
     ) {
         self.settings = settings
         self.token = token
+        self.appLanguage = appLanguage
         self.brokerConnection = brokerConnection
         self.currentSeriesTitle = currentSeriesTitle
         self.makeGlossaryController = makeGlossaryController
         self.onSave = onSave
         super.init(style: .insetGrouped)
-        title = "Cài đặt reader"
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Xong", style: .done, target: self, action: #selector(done))
-        navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(close))
+        applyLanguage()
     }
 
-    @objc private func done() { onSave(settings, token, false); dismiss(animated: true) }
+    private func text(_ english: String, _ vietnamese: String) -> String {
+        uiText(english, vietnamese, language: appLanguage)
+    }
+
+    private func applyLanguage() {
+        title = text("Reader Settings", "Cài đặt reader")
+        navigationItem.rightBarButtonItem = UIBarButtonItem(title: text("Done", "Xong"), style: .done, target: self, action: #selector(done))
+        navigationItem.leftBarButtonItem = UIBarButtonItem(title: text("Close", "Đóng"), style: .plain, target: self, action: #selector(close))
+        tableView.reloadData()
+    }
+
+    @objc private func done() { onSave(settings, token, appLanguage, false); dismiss(animated: true) }
     @objc private func close() { dismiss(animated: true) }
 
     override func numberOfSections(in tableView: UITableView) -> Int { 6 }
-    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { [3, 3, 2, 2, 2, 1][section] }
+    override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { [4, 3, 2, 2, 2, 1][section] }
     override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
-        ["Ngôn ngữ", "Tuyến xử lý", "Riêng tư", "Thuật ngữ", "Lịch sử", "Hỗ trợ"][section]
+        [
+            text("Languages", "Ngôn ngữ"),
+            text("Processing Route", "Tuyến xử lý"),
+            text("Privacy", "Riêng tư"),
+            text("Terminology", "Thuật ngữ"),
+            text("History", "Lịch sử"),
+            text("Support", "Hỗ trợ"),
+        ][section]
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let cell = UITableViewCell(style: .value1, reuseIdentifier: nil)
         cell.accessoryType = .disclosureIndicator
         switch (indexPath.section, indexPath.row) {
-        case (0, 0): cell.textLabel?.text = "Dịch sang"; cell.detailTextLabel?.text = languageName(settings.targetLanguage)
-        case (0, 1): cell.textLabel?.text = "Nguồn"; cell.detailTextLabel?.text = languageName(settings.sourceLanguage)
-        case (0, 2): cell.textLabel?.text = "Đọc trước"; cell.detailTextLabel?.text = "\(settings.lookAhead) ảnh"
-        case (1, 0): cell.textLabel?.text = "Chế độ"; cell.detailTextLabel?.text = settings.route.title
+        case (0, 0): cell.textLabel?.text = text("App Language", "Ngôn ngữ ứng dụng"); cell.detailTextLabel?.text = appLanguage.nativeName
+        case (0, 1): cell.textLabel?.text = text("Translate To", "Dịch sang"); cell.detailTextLabel?.text = languageName(settings.targetLanguage)
+        case (0, 2): cell.textLabel?.text = text("Source Language", "Ngôn ngữ nguồn"); cell.detailTextLabel?.text = languageName(settings.sourceLanguage)
+        case (0, 3): cell.textLabel?.text = text("Look Ahead", "Đọc trước"); cell.detailTextLabel?.text = text("\(settings.lookAhead) images", "\(settings.lookAhead) ảnh")
+        case (1, 0): cell.textLabel?.text = text("Mode", "Chế độ"); cell.detailTextLabel?.text = settings.route.title(language: appLanguage)
         case (1, 1): cell.textLabel?.text = "Broker"; cell.detailTextLabel?.text = brokerConnection
-        case (1, 2): cell.textLabel?.text = "Token broker"; cell.detailTextLabel?.text = token.isEmpty ? "Chưa có" : "Đã lưu trong Keychain"
-        case (2, 0): cell.textLabel?.text = "Phiên riêng tư"; cell.accessoryType = .none; cell.accessoryView = switchView(isOn: settings.privateSession, action: #selector(togglePrivate(_:)))
-        case (2, 1): cell.textLabel?.text = "Tra cứu tên từ web"; cell.accessoryType = .none; cell.accessoryView = switchView(isOn: settings.externalResearchAllowed, action: #selector(toggleResearch(_:)))
+        case (1, 2): cell.textLabel?.text = text("Broker Token", "Token broker"); cell.detailTextLabel?.text = token.isEmpty ? text("Not set", "Chưa có") : text("Saved in Keychain", "Đã lưu trong Keychain")
+        case (2, 0): cell.textLabel?.text = text("Private Session", "Phiên riêng tư"); cell.accessoryType = .none; cell.accessoryView = switchView(isOn: settings.privateSession, action: #selector(togglePrivate(_:)))
+        case (2, 1): cell.textLabel?.text = text("Research Names Online", "Tra cứu tên từ web"); cell.accessoryType = .none; cell.accessoryView = switchView(isOn: settings.externalResearchAllowed, action: #selector(toggleResearch(_:)))
         case (3, 0):
-            cell.textLabel?.text = "Tên trong truyện này"
-            cell.detailTextLabel?.text = currentSeriesTitle ?? "Mở một truyện trước"
+            cell.textLabel?.text = text("Names in This Series", "Tên trong truyện này")
+            cell.detailTextLabel?.text = currentSeriesTitle ?? text("Open a comic first", "Mở một truyện trước")
             cell.accessoryType = currentSeriesTitle == nil ? .none : .disclosureIndicator
-        case (3, 1): cell.textLabel?.text = "Giải thích research"; cell.detailTextLabel?.text = "Chỉ tên truyện + ngôn ngữ"
-        case (4, 0): cell.textLabel?.text = "Giữ lịch sử"; cell.detailTextLabel?.text = "\(settings.historyRetentionDays) ngày"
-        case (4, 1): cell.textLabel?.text = "Xoá lịch sử"; cell.textLabel?.textColor = .systemRed; cell.detailTextLabel?.text = nil
-        case (5, 0): cell.textLabel?.text = "Chẩn đoán tuyến dịch"; cell.detailTextLabel?.text = "Không chứa nội dung truyện"
+        case (3, 1): cell.textLabel?.text = text("How Research Works", "Giải thích research"); cell.detailTextLabel?.text = text("Series title + language only", "Chỉ tên truyện + ngôn ngữ")
+        case (4, 0): cell.textLabel?.text = text("Keep History", "Giữ lịch sử"); cell.detailTextLabel?.text = text("\(settings.historyRetentionDays) days", "\(settings.historyRetentionDays) ngày")
+        case (4, 1): cell.textLabel?.text = text("Clear History", "Xoá lịch sử"); cell.textLabel?.textColor = .systemRed; cell.detailTextLabel?.text = nil
+        case (5, 0): cell.textLabel?.text = text("Translation Diagnostics", "Chẩn đoán tuyến dịch"); cell.detailTextLabel?.text = text("No comic content", "Không chứa nội dung truyện")
         default: break
         }
         return cell
@@ -1913,17 +2233,22 @@ private final class ReaderSettingsController: UITableViewController {
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         switch (indexPath.section, indexPath.row) {
-        case (0, 0): choose("Dịch sang", values: [("vi", "Tiếng Việt"), ("en", "English"), ("ja", "日本語"), ("ko", "한국어")]) { self.settings.targetLanguage = $0 }
-        case (0, 1): choose("Ngôn ngữ nguồn", values: [("zh-Hans", "中文 (Giản thể)"), ("zh-Hant", "中文 (Phồn thể)"), ("ja", "日本語"), ("ko", "한국어")]) { self.settings.sourceLanguage = $0 }
-        case (0, 2): choose("Đọc trước", values: [("0", "0 ảnh"), ("1", "1 ảnh"), ("2", "2 ảnh"), ("3", "3 ảnh")]) { self.settings.lookAhead = Int($0) ?? 2 }
-        case (1, 0): choose("Chế độ xử lý", values: ProcessingRoute.allCases.map { ($0.rawValue, $0.title) }) { self.settings.route = ProcessingRoute(rawValue: $0) ?? .automatic }
-        case (1, 1): edit("Broker HTTPS dự phòng", initial: settings.endpoint, secure: false) { self.settings.endpoint = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        case (1, 2): edit("Token broker", initial: token, secure: true) { self.token = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        case (0, 0):
+            choose(text("App Language", "Ngôn ngữ ứng dụng"), values: AppLanguage.allCases.map { ($0.rawValue, $0.nativeName) }) {
+                self.appLanguage = AppLanguage(rawValue: $0) ?? .english
+                self.applyLanguage()
+            }
+        case (0, 1): choose(text("Translate To", "Dịch sang"), values: [("vi", "Tiếng Việt"), ("en", "English"), ("ja", "日本語"), ("ko", "한국어")]) { self.settings.targetLanguage = $0 }
+        case (0, 2): choose(text("Source Language", "Ngôn ngữ nguồn"), values: [("zh-Hans", text("中文 (Simplified)", "中文 (Giản thể)")), ("zh-Hant", text("中文 (Traditional)", "中文 (Phồn thể)")), ("ja", "日本語"), ("ko", "한국어")]) { self.settings.sourceLanguage = $0 }
+        case (0, 3): choose(text("Look Ahead", "Đọc trước"), values: [("0", text("0 images", "0 ảnh")), ("1", text("1 image", "1 ảnh")), ("2", text("2 images", "2 ảnh")), ("3", text("3 images", "3 ảnh"))]) { self.settings.lookAhead = Int($0) ?? 2 }
+        case (1, 0): choose(text("Processing Mode", "Chế độ xử lý"), values: ProcessingRoute.allCases.map { ($0.rawValue, $0.title(language: appLanguage)) }) { self.settings.route = ProcessingRoute(rawValue: $0) ?? .automatic }
+        case (1, 1): edit(text("Fallback Broker HTTPS", "Broker HTTPS dự phòng"), initial: settings.endpoint, secure: false) { self.settings.endpoint = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        case (1, 2): edit(text("Broker Token", "Token broker"), initial: token, secure: true) { self.token = $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         case (3, 0):
             guard let glossary = makeGlossaryController(settings.targetLanguage) else { return }
             navigationController?.pushViewController(glossary, animated: true)
         case (3, 1): showResearchDisclosure()
-        case (4, 0): choose("Giữ lịch sử", values: [("30", "30 ngày"), ("90", "90 ngày"), ("365", "1 năm")]) { self.settings.historyRetentionDays = Int($0) ?? 90 }
+        case (4, 0): choose(text("Keep History", "Giữ lịch sử"), values: [("30", text("30 days", "30 ngày")), ("90", text("90 days", "90 ngày")), ("365", text("1 year", "1 năm"))]) { self.settings.historyRetentionDays = Int($0) ?? 90 }
         case (4, 1): confirmClearHistory()
         case (5, 0): showDiagnostics()
         default: break
@@ -1940,30 +2265,37 @@ private final class ReaderSettingsController: UITableViewController {
     private func choose(_ title: String, values: [(String, String)], select: @escaping (String) -> Void) {
         let sheet = UIAlertController(title: title, message: nil, preferredStyle: .actionSheet)
         values.forEach { value, label in sheet.addAction(UIAlertAction(title: label, style: .default) { _ in select(value); self.tableView.reloadData() }) }
-        sheet.addAction(UIAlertAction(title: "Huỷ", style: .cancel))
+        sheet.addAction(UIAlertAction(title: text("Cancel", "Huỷ"), style: .cancel))
         if let popover = sheet.popoverPresentationController { popover.sourceView = view; popover.sourceRect = view.bounds }
         present(sheet, animated: true)
     }
 
     private func edit(_ title: String, initial: String, secure: Bool, save: @escaping (String) -> Void) {
-        let alert = UIAlertController(title: title, message: secure ? "Lưu trong Keychain; không đưa token vào trang web." : nil, preferredStyle: .alert)
+        let alert = UIAlertController(title: title, message: secure ? text("Saved in Keychain. The token is never exposed to the web page.", "Lưu trong Keychain; không đưa token vào trang web.") : nil, preferredStyle: .alert)
         alert.addTextField { field in field.text = initial; field.isSecureTextEntry = secure; field.autocapitalizationType = .none; field.autocorrectionType = .no }
-        alert.addAction(UIAlertAction(title: "Lưu", style: .default) { _ in save(alert.textFields?.first?.text ?? ""); self.tableView.reloadData() })
-        alert.addAction(UIAlertAction(title: "Huỷ", style: .cancel))
+        alert.addAction(UIAlertAction(title: text("Save", "Lưu"), style: .default) { _ in save(alert.textFields?.first?.text ?? ""); self.tableView.reloadData() })
+        alert.addAction(UIAlertAction(title: text("Cancel", "Huỷ"), style: .cancel))
         present(alert, animated: true)
     }
 
     private func showResearchDisclosure() {
-        let alert = UIAlertController(title: "Tra cứu tên truyện", message: "Khi bật, Comic Sub chỉ có thể gửi tên truyện đã chuẩn hoá và ngôn ngữ đích tới nguồn đã kiểm duyệt để tìm cách gọi nhân vật/địa danh. Không gửi ảnh, OCR, URL chapter hay lịch sử đọc. Bạn có thể tắt hoặc xoá dữ liệu này bất cứ lúc nào.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Bật tra cứu", style: .default) { _ in self.settings.externalResearchAllowed = true; self.tableView.reloadData() })
-        alert.addAction(UIAlertAction(title: "Chỉ dùng trên máy", style: .cancel) { _ in self.settings.externalResearchAllowed = false; self.tableView.reloadData() })
+        let alert = UIAlertController(
+            title: text("Research Series Names", "Tra cứu tên truyện"),
+            message: text(
+                "When enabled, Comic Sub sends only the normalized series title and target language to approved public sources to find established character and place names. It never sends images, OCR, chapter URLs, or reading history.",
+                "Khi bật, Comic Sub chỉ có thể gửi tên truyện đã chuẩn hoá và ngôn ngữ đích tới nguồn đã kiểm duyệt để tìm cách gọi nhân vật/địa danh. Không gửi ảnh, OCR, URL chapter hay lịch sử đọc. Bạn có thể tắt hoặc xoá dữ liệu này bất cứ lúc nào."
+            ),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: text("Enable Research", "Bật tra cứu"), style: .default) { _ in self.settings.externalResearchAllowed = true; self.tableView.reloadData() })
+        alert.addAction(UIAlertAction(title: text("On Device Only", "Chỉ dùng trên máy"), style: .cancel) { _ in self.settings.externalResearchAllowed = false; self.tableView.reloadData() })
         present(alert, animated: true)
     }
 
     private func confirmClearHistory() {
-        let alert = UIAlertController(title: "Xoá toàn bộ lịch sử?", message: "Không thể khôi phục vị trí đọc đã xoá.", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "Xoá lịch sử", style: .destructive) { _ in ReadingHistoryStore().clear() })
-        alert.addAction(UIAlertAction(title: "Huỷ", style: .cancel))
+        let alert = UIAlertController(title: text("Clear All History?", "Xoá toàn bộ lịch sử?"), message: text("Deleted reading positions cannot be restored.", "Không thể khôi phục vị trí đọc đã xoá."), preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: text("Clear History", "Xoá lịch sử"), style: .destructive) { _ in ReadingHistoryStore().clear() })
+        alert.addAction(UIAlertAction(title: text("Cancel", "Huỷ"), style: .cancel))
         present(alert, animated: true)
     }
 
@@ -1971,22 +2303,32 @@ private final class ReaderSettingsController: UITableViewController {
         let endpoint = brokerConnection
         let route: String
         switch settings.route {
-        case .automatic: route = "Tự chọn: không tự chuyển sang Cloud"
-        case .onDevice: route = "Văn bản: Apple Translation khi gói có sẵn"
-        case .privateServer: route = "Server riêng: \(endpoint)"
-        case .managedCloud: route = "Managed Cloud: chưa gửi job tự động"
+        case .automatic: route = text("Automatic: configured broker first, on-device fallback", "Tự chọn: ưu tiên broker đã cấu hình, fallback trên thiết bị")
+        case .onDevice: route = text("Text: Apple Translation when the pack is installed", "Văn bản: Apple Translation khi gói có sẵn")
+        case .privateServer: route = text("Private server: \(endpoint)", "Server riêng: \(endpoint)")
+        case .managedCloud: route = text("Managed Cloud: jobs are never sent automatically", "Managed Cloud: chưa gửi job tự động")
         }
         let alert = UIAlertController(
-            title: "Chẩn đoán an toàn",
-            message: "Tuyến: \(route)\nBroker: Bonjour Mac tự chọn khi có; server nhập tay chỉ HTTPS\nToken server: \(token.isEmpty ? "chưa lưu" : "đã lưu trong Keychain")\nBridge: chỉ metadata ảnh và vị trí đọc\nKhông có URL, ảnh, OCR, glossary hoặc secret trong màn hình này.",
+            title: text("Privacy Diagnostics", "Chẩn đoán an toàn"),
+            message: text(
+                "Route: \(route)\nBroker: a paired Bonjour Mac is preferred; manually entered servers require HTTPS\nServer token: \(token.isEmpty ? "not saved" : "saved in Keychain")\nBridge: image metadata and reading position only\nThis screen contains no URL, image, OCR, glossary, or secret.",
+                "Tuyến: \(route)\nBroker: Bonjour Mac tự chọn khi có; server nhập tay chỉ HTTPS\nToken server: \(token.isEmpty ? "chưa lưu" : "đã lưu trong Keychain")\nBridge: chỉ metadata ảnh và vị trí đọc\nKhông có URL, ảnh, OCR, glossary hoặc secret trong màn hình này."
+            ),
             preferredStyle: .alert
         )
-        alert.addAction(UIAlertAction(title: "Đóng", style: .default))
+        alert.addAction(UIAlertAction(title: text("Close", "Đóng"), style: .default))
         present(alert, animated: true)
     }
 
     private func languageName(_ value: String) -> String {
-        ["vi": "Tiếng Việt", "en": "English", "ja": "日本語", "ko": "한국어", "zh-Hans": "中文 (Giản thể)", "zh-Hant": "中文 (Phồn thể)"][value] ?? value
+        [
+            "vi": "Tiếng Việt",
+            "en": "English",
+            "ja": "日本語",
+            "ko": "한국어",
+            "zh-Hans": text("中文 (Simplified)", "中文 (Giản thể)"),
+            "zh-Hant": text("中文 (Traditional)", "中文 (Phồn thể)"),
+        ][value] ?? value
     }
 }
 
@@ -2003,7 +2345,7 @@ private final class SeriesGlossaryViewController: UITableViewController {
         self.presentation = presentation
         self.research = research
         super.init(style: .insetGrouped)
-        title = "Tên trong truyện này"
+        title = uiText("Names in This Series", "Tên trong truyện này")
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -2017,7 +2359,7 @@ private final class SeriesGlossaryViewController: UITableViewController {
         }
         navigationItem.largeTitleDisplayMode = .never
         navigationItem.rightBarButtonItem = UIBarButtonItem(
-            title: "AI tìm thêm",
+            title: uiText("Find More with AI", "AI tìm thêm"),
             style: .plain,
             target: self,
             action: #selector(findWithAI)
@@ -2037,12 +2379,12 @@ private final class SeriesGlossaryViewController: UITableViewController {
     override func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
         let state: String
         switch presentation.researchState {
-        case "complete": state = "AI đã đối chiếu thêm với nguồn công khai."
-        case "unavailable": state = "Nguồn công khai đang không khả dụng; tên có sẵn trên máy vẫn được giữ."
-        case "queued", "running": state = "AI đang đối chiếu tên theo ngôn ngữ đã chọn."
-        default: state = "Chỉ áp dụng cho bộ truyện và ngôn ngữ này. Đổi ngôn ngữ sẽ dùng glossary riêng."
+        case "complete": state = uiText("AI cross-checked additional public sources.", "AI đã đối chiếu thêm với nguồn công khai.")
+        case "unavailable": state = uiText("Public sources are unavailable; on-device names are preserved.", "Nguồn công khai đang không khả dụng; tên có sẵn trên máy vẫn được giữ.")
+        case "queued", "running": state = uiText("AI is cross-checking names for the selected language.", "AI đang đối chiếu tên theo ngôn ngữ đã chọn.")
+        default: state = uiText("Applies only to this series and language. Another target language uses a separate glossary.", "Chỉ áp dụng cho bộ truyện và ngôn ngữ này. Đổi ngôn ngữ sẽ dùng glossary riêng.")
         }
-        return "\(presentation.terms.count) tên · \(state)"
+        return uiText("\(presentation.terms.count) names · \(state)", "\(presentation.terms.count) tên · \(state)")
     }
 
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
@@ -2050,7 +2392,14 @@ private final class SeriesGlossaryViewController: UITableViewController {
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         cell.textLabel?.text = item.targetTerm
         cell.textLabel?.font = .preferredFont(forTextStyle: .headline)
-        cell.detailTextLabel?.text = "\(item.sourceTerm)  ·  \(item.origin)\(item.status == "quarantined" ? " · Chờ xác nhận" : "")"
+        let origin: String
+        switch item.origin {
+        case "local": origin = uiText("On device", "Trên máy")
+        case "public": origin = uiText("Public source", "Nguồn công khai")
+        default: origin = uiText("Learned", "Đã học")
+        }
+        let pending = item.status == "quarantined" ? uiText(" · Needs review", " · Chờ xác nhận") : ""
+        cell.detailTextLabel?.text = "\(item.sourceTerm)  ·  \(origin)\(pending)"
         cell.detailTextLabel?.textColor = .secondaryLabel
         cell.detailTextLabel?.font = .preferredFont(forTextStyle: .subheadline)
         cell.selectionStyle = .none
@@ -2060,7 +2409,7 @@ private final class SeriesGlossaryViewController: UITableViewController {
     @objc private func findWithAI() {
         guard researchTask == nil else { return }
         navigationItem.rightBarButtonItem?.isEnabled = false
-        navigationItem.rightBarButtonItem?.title = "Đang tìm…"
+        navigationItem.rightBarButtonItem?.title = uiText("Searching…", "Đang tìm…")
         let spinner = UIActivityIndicatorView(style: .medium)
         spinner.startAnimating()
         navigationItem.titleView = spinner
@@ -2070,14 +2419,14 @@ private final class SeriesGlossaryViewController: UITableViewController {
                 self.researchTask = nil
                 self.navigationItem.titleView = nil
                 self.navigationItem.rightBarButtonItem?.isEnabled = true
-                self.navigationItem.rightBarButtonItem?.title = "AI tìm thêm"
+                self.navigationItem.rightBarButtonItem?.title = uiText("Find More with AI", "AI tìm thêm")
             }
             do {
                 self.presentation = try await self.research()
                 self.tableView.reloadData()
             } catch {
-                let alert = UIAlertController(title: "Chưa tìm thêm được", message: error.localizedDescription, preferredStyle: .alert)
-                alert.addAction(UIAlertAction(title: "Đóng", style: .default))
+                let alert = UIAlertController(title: uiText("Could Not Find More Names", "Chưa tìm thêm được"), message: error.localizedDescription, preferredStyle: .alert)
+                alert.addAction(UIAlertAction(title: uiText("Close", "Đóng"), style: .default))
                 self.present(alert, animated: true)
             }
         }
@@ -2092,20 +2441,26 @@ private final class HistoryViewController: UITableViewController {
     init(history: [ReadingHistoryEntry], privateSession: Bool, open: @escaping (ReadingHistoryEntry) -> Void) {
         self.history = history; self.privateSession = privateSession; self.open = open
         super.init(style: .insetGrouped)
-        title = "Đọc tiếp"
+        title = uiText("Continue Reading", "Đọc tiếp")
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     override func viewDidLoad() { super.viewDidLoad(); navigationItem.leftBarButtonItem = UIBarButtonItem(barButtonSystemItem: .close, target: self, action: #selector(close)) }
     @objc private func close() { dismiss(animated: true) }
     override func numberOfSections(in tableView: UITableView) -> Int { 1 }
     override func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { history.count }
-    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? { privateSession ? "Phiên riêng tư không lưu lịch sử" : "Vị trí được lưu trên thiết bị này" }
+    override func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        privateSession
+            ? uiText("Private Sessions do not save history", "Phiên riêng tư không lưu lịch sử")
+            : uiText("Reading positions are saved on this device", "Vị trí được lưu trên thiết bị này")
+    }
     override func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
         let entry = history[indexPath.row]
         let cell = UITableViewCell(style: .subtitle, reuseIdentifier: nil)
         cell.textLabel?.text = entry.title
-        let progress = entry.candidateIndex > 0 ? " · ảnh \(entry.candidateIndex + 1)" : ""
-        cell.detailTextLabel?.text = "\(entry.translated ? "Đã dịch" : "Đang đọc")\(progress) · \(RelativeDateTimeFormatter().localizedString(for: entry.lastOpened, relativeTo: Date()))"
+        let progress = entry.candidateIndex > 0 ? uiText(" · image \(entry.candidateIndex + 1)", " · ảnh \(entry.candidateIndex + 1)") : ""
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = AppLanguageStore.shared.load().locale
+        cell.detailTextLabel?.text = "\(entry.translated ? uiText("Translated", "Đã dịch") : uiText("Reading", "Đang đọc"))\(progress) · \(formatter.localizedString(for: entry.lastOpened, relativeTo: Date()))"
         cell.accessoryType = .disclosureIndicator
         return cell
     }
