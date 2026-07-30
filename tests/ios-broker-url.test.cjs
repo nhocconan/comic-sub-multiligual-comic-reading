@@ -42,10 +42,10 @@ test('iOS app language is independent and defaults to English', () => {
   assert.doesNotMatch(source, /var appLanguage.+ReaderSettings/)
 })
 
-test('iOS automatic mode prefers a configured broker and pins Gemini 3.6 Flash', () => {
+test('iOS automatic mode prefers an installed language pack and pins remote Gemini 3.6 Flash', () => {
   assert.match(
     source,
-    /case \.automatic:[\s\S]*?!settingsStore\.loadToken\(\)\.isEmpty[\s\S]*?return false[\s\S]*?fallthrough/,
+    /case \.automatic:[\s\S]*?state == \.installed[\s\S]*?return true[\s\S]*?!settingsStore\.loadToken\(\)\.isEmpty[\s\S]*?return false/,
   )
   assert.match(
     source,
@@ -72,21 +72,43 @@ test('iOS reader renders broker regions directly and ignores its own overlay mut
   assert.match(source, /mutations\.some\(mutation => !isReaderMutation\(mutation\)\)/)
 })
 
-test('Translate Current defaults to one image and on-device OCR uses the fast Vision path', () => {
+test('Translate Current defaults to one image and on-device OCR starts with the fast Vision path', () => {
   assert.match(source, /var lookAhead = 0/)
   assert.match(
     source,
     /case \.visible:\s+selected = candidates\.first\(where: \{ \$0\.index >= currentAnchor\.index \}\)\.map \{ \[\$0\] \}/,
   )
-  assert.match(source, /request\.recognitionLevel = \.fast/)
-  assert.match(source, /request\.usesLanguageCorrection = false/)
+  assert.match(source, /level: \.fast/)
+  assert.match(source, /usesLanguageCorrection: false/)
+  assert.match(source, /request\.recognitionLevel = level/)
   assert.match(source, /session\.translations\(from: requests\)/)
+})
+
+test('CJK on-device OCR refines suspicious fast results and rejects Latin garbage', () => {
+  assert.match(source, /if needsAccuratePass\(fast, sourceLanguage: sourceLanguage\)/)
+  assert.match(source, /level: \.accurate/)
+  assert.match(source, /usesLanguageCorrection: true/)
+  assert.match(source, /return cjkCount > 0/)
+  assert.match(source, /mergeDialogueLines\(/)
+  assert.match(source, /source: previous\.source \+ region\.source/)
+  assert.match(source, /const fitText = node =>/)
+  assert.match(source, /if \(!semanticOnly\) fitText\(node\)/)
+})
+
+test('Safe Automatic prefers an installed Apple language pack before broker credentials', () => {
+  const automatic = source.indexOf('case .automatic:')
+  const installed = source.indexOf('if state == .installed', automatic)
+  const token = source.indexOf('if !settingsStore.loadToken().isEmpty', automatic)
+  assert.ok(automatic >= 0 && installed > automatic && token > installed)
+  assert.match(source, /Uses Apple Vision \+ Translation on device first/)
 })
 
 test('iOS remote route uploads adaptive page windows before waiting for results', () => {
   assert.match(source, /stride\(from: 0, to: indexedJobs\.count, by: 4\)/)
   assert.match(source, /withThrowingTaskGroup\(of: Void\.self\)/)
   const upload = source.indexOf('client.upload(jobID: job.jobId, image: image)')
+  const flush = source.indexOf('client.flushBatch(batch.batchId)', upload)
   const settle = source.indexOf('pollSettled(client: client, jobID: job.jobId)', upload)
-  assert.ok(upload >= 0 && settle > upload)
+  assert.ok(upload >= 0 && flush > upload && settle > flush)
+  assert.match(source, /v1\/job-batches\/\\\(batchID\)\/flush/)
 })

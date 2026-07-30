@@ -61,6 +61,16 @@ export function createBrokerServer(broker) {
         )
         return sendJson(response, 202, value)
       }
+      if (
+        request.method === 'POST' &&
+        (match = url.pathname.match(/^\/v1\/job-batches\/([^/]+)\/flush$/))
+      ) {
+        return sendJson(
+          response,
+          202,
+          broker.flushBatch(actor, decodeURIComponent(match[1])),
+        )
+      }
       if (request.method === 'POST' && url.pathname === '/v1/series/bootstrap') {
         const value = await broker.bootstrapSeries(actor, await jsonBody(request))
         return sendJson(response, 202, value)

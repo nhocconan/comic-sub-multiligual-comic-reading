@@ -69,8 +69,8 @@ private enum ProcessingRoute: String, CaseIterable, Codable {
 
     func privacySummary(language: AppLanguage = AppLanguageStore.shared.load()) -> String {
         switch self {
-        case .automatic: return uiText("Uses your configured broker first, then falls back to on-device translation.", "Ưu tiên broker đã cấu hình, sau đó mới dùng dịch trên thiết bị.", language: language)
-        case .onDevice: return uiText("Text is translated on device when the language pack is installed. OCR/layout still needs a separate route.", "Chỉ dịch văn bản trên thiết bị khi gói ngôn ngữ đã cài. OCR/bố cục phải có tuyến riêng.", language: language)
+        case .automatic: return uiText("Uses Apple Vision + Translation on device first, then falls back to your configured broker.", "Ưu tiên Apple Vision + Translation trên thiết bị, sau đó mới fallback sang broker đã cấu hình.", language: language)
+        case .onDevice: return uiText("OCR and text translation stay on device when the language pack is installed.", "OCR và dịch văn bản đều chạy trên thiết bị khi gói ngôn ngữ đã cài.", language: language)
         case .privateServer: return uiText("Eligible images may be sent to your paired server over HTTPS.", "Ảnh phù hợp có thể được gửi đến server bạn đã ghép nối qua HTTPS.", language: language)
         case .managedCloud: return uiText("Used only after you confirm data transfer for this job.", "Chỉ dùng sau khi bạn xác nhận đường truyền dữ liệu cho job này.", language: language)
         }
@@ -329,6 +329,10 @@ private final class BrokerClient {
         try await json(path: "v1/job-batches", method: "POST", payload: payload, extraHeaders: ["Idempotency-Key": idempotencyKey])
     }
 
+    func flushBatch(_ batchID: String) async throws {
+        let _: BrokerBatch = try await json(path: "v1/job-batches/\(batchID)/flush", method: "POST")
+    }
+
     func bootstrapSeries(_ payload: [String: Any]) async throws -> SeriesBootstrapResponse {
         try await json(path: "v1/series/bootstrap", method: "POST", payload: payload)
     }
@@ -556,6 +560,47 @@ private final class OnDeviceComicOCR {
         default: recognitionLanguage = sourceLanguage
         }
 
+        let fast = try await recognizePass(
+            cgImage,
+            width: width,
+            height: height,
+            recognitionLanguage: recognitionLanguage,
+            level: .fast,
+            usesLanguageCorrection: false,
+            minimumTextHeight: 0.008
+        )
+        let regions: [BrokerRegion]
+        if needsAccuratePass(fast, sourceLanguage: sourceLanguage) {
+            regions = try await recognizePass(
+                cgImage,
+                width: width,
+                height: height,
+                recognitionLanguage: recognitionLanguage,
+                level: .accurate,
+                usesLanguageCorrection: true,
+                minimumTextHeight: 0.004
+            ).filter { isPlausible($0.source, sourceLanguage: sourceLanguage) }
+        } else {
+            regions = fast.filter { isPlausible($0.source, sourceLanguage: sourceLanguage) }
+        }
+        return OnDeviceOCRPage(
+            page: BrokerPage(width: width, height: height),
+            regions: mergeDialogueLines(
+                sorted(regions, pageHeight: height),
+                sourceLanguage: sourceLanguage
+            )
+        )
+    }
+
+    private func recognizePass(
+        _ cgImage: CGImage,
+        width: Double,
+        height: Double,
+        recognitionLanguage: String,
+        level: VNRequestTextRecognitionLevel,
+        usesLanguageCorrection: Bool,
+        minimumTextHeight: Float
+    ) async throws -> [BrokerRegion] {
         return try await withCheckedThrowingContinuation { continuation in
             let request = VNRecognizeTextRequest { request, error in
                 if let error {
@@ -580,20 +625,12 @@ private final class OnDeviceComicOCR {
                         confidence: Double(candidate.confidence)
                     )
                 }
-                regions.sort {
-                    let rowTolerance = max(8, height * 0.012)
-                    if abs($0.y - $1.y) > rowTolerance { return $0.y < $1.y }
-                    return $0.x < $1.x
-                }
-                continuation.resume(returning: OnDeviceOCRPage(
-                    page: BrokerPage(width: width, height: height),
-                    regions: regions
-                ))
+                continuation.resume(returning: regions)
             }
-            request.recognitionLevel = .fast
-            request.usesLanguageCorrection = false
+            request.recognitionLevel = level
+            request.usesLanguageCorrection = usesLanguageCorrection
             request.recognitionLanguages = [recognitionLanguage]
-            request.minimumTextHeight = 0.008
+            request.minimumTextHeight = minimumTextHeight
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     try VNImageRequestHandler(cgImage: cgImage, options: [:]).perform([request])
@@ -601,6 +638,124 @@ private final class OnDeviceComicOCR {
                     continuation.resume(throwing: error)
                 }
             }
+        }
+    }
+
+    private func needsAccuratePass(_ regions: [BrokerRegion], sourceLanguage: String) -> Bool {
+        guard isCJK(sourceLanguage) else {
+            return regions.isEmpty || regions.contains { ($0.confidence ?? 0) < 0.45 }
+        }
+        guard !regions.isEmpty else { return true }
+        let plausible = regions.filter { isPlausible($0.source, sourceLanguage: sourceLanguage) }
+        let confidence = plausible.map { $0.confidence ?? 0 }.reduce(0, +) / Double(max(plausible.count, 1))
+        return plausible.count < regions.count || confidence < 0.72
+    }
+
+    private func isPlausible(_ text: String, sourceLanguage: String) -> Bool {
+        guard isCJK(sourceLanguage) else {
+            return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        let cjkCount = text.unicodeScalars.filter { scalar in
+            let value = scalar.value
+            switch sourceLanguage {
+            case "ko":
+                return (0xAC00...0xD7AF).contains(value) || (0x3400...0x9FFF).contains(value)
+            case "ja":
+                return (0x3040...0x30FF).contains(value) || (0x3400...0x9FFF).contains(value)
+            default:
+                return (0x3400...0x9FFF).contains(value) || (0xF900...0xFAFF).contains(value)
+            }
+        }.count
+        return cjkCount > 0
+    }
+
+    private func sanitized(_ text: String, sourceLanguage: String) -> String {
+        guard isCJK(sourceLanguage) else {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let punctuation = CharacterSet(charactersIn: "，。！？：；、“”‘’…—（）《》「」『』,.!?")
+        let scalars = text.unicodeScalars.filter { scalar in
+            let value = scalar.value
+            let scriptMatches: Bool
+            switch sourceLanguage {
+            case "ko":
+                scriptMatches = (0xAC00...0xD7AF).contains(value) || (0x3400...0x9FFF).contains(value)
+            case "ja":
+                scriptMatches = (0x3040...0x30FF).contains(value) || (0x3400...0x9FFF).contains(value)
+            default:
+                scriptMatches = (0x3400...0x9FFF).contains(value) || (0xF900...0xFAFF).contains(value)
+            }
+            return scriptMatches || punctuation.contains(scalar)
+        }
+        return String(String.UnicodeScalarView(scalars))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func mergeDialogueLines(
+        _ regions: [BrokerRegion],
+        sourceLanguage: String
+    ) -> [BrokerRegion] {
+        let cleaned = regions.compactMap { region -> BrokerRegion? in
+            let text = sanitized(region.source, sourceLanguage: sourceLanguage)
+            guard !text.isEmpty else { return nil }
+            return BrokerRegion(
+                id: region.id,
+                x: region.x,
+                y: region.y,
+                width: region.width,
+                height: region.height,
+                rotation: region.rotation,
+                source: text,
+                translation: "",
+                confidence: region.confidence
+            )
+        }
+        guard isCJK(sourceLanguage) else { return cleaned }
+        var merged: [BrokerRegion] = []
+        for region in cleaned {
+            guard let previous = merged.last else {
+                merged.append(region)
+                continue
+            }
+            let horizontalOverlap = max(
+                0,
+                min(previous.x + previous.width, region.x + region.width) - max(previous.x, region.x)
+            )
+            let overlapRatio = horizontalOverlap / max(1, min(previous.width, region.width))
+            let verticalGap = max(0, region.y - (previous.y + previous.height))
+            let closeEnough = verticalGap <= max(14, max(previous.height, region.height) * 1.35)
+            guard overlapRatio >= 0.28, closeEnough else {
+                merged.append(region)
+                continue
+            }
+            let minX = min(previous.x, region.x)
+            let minY = min(previous.y, region.y)
+            let maxX = max(previous.x + previous.width, region.x + region.width)
+            let maxY = max(previous.y + previous.height, region.y + region.height)
+            merged[merged.count - 1] = BrokerRegion(
+                id: previous.id,
+                x: minX,
+                y: minY,
+                width: maxX - minX,
+                height: maxY - minY,
+                rotation: nil,
+                source: previous.source + region.source,
+                translation: "",
+                confidence: min(previous.confidence ?? 0, region.confidence ?? 0)
+            )
+        }
+        return merged
+    }
+
+    private func isCJK(_ language: String) -> Bool {
+        language.hasPrefix("zh") || language == "ja" || language == "ko"
+    }
+
+    private func sorted(_ regions: [BrokerRegion], pageHeight: Double) -> [BrokerRegion] {
+        regions.sorted {
+            let rowTolerance = max(8, pageHeight * 0.012)
+            if abs($0.y - $1.y) > rowTolerance { return $0.y < $1.y }
+            return $0.x < $1.x
         }
     }
 }
@@ -782,8 +937,8 @@ private final class OnDeviceTranslationCapability {
         #endif
     }
 
-    // This is intentionally text-only. Candidate images need a local OCR/layout
-    // adapter before the app may claim a fully-local comic pipeline.
+    // Direct text-only helper. Comic pages use OnDeviceComicOCR before reaching
+    // this stage, so the reader's on-device route remains fully local.
     func translateInstalledText(_ text: String, source: String, target: String) async throws -> String {
         #if canImport(Translation)
         // Apple only exposes the direct installed-session initializer from iOS
@@ -936,6 +1091,13 @@ private enum ReaderBridge {
         return layout(id);
       };
       const place = (node, region, page, rect) => Object.assign(node.style, { position: 'absolute', left: `${region.x / page.width * rect.width}px`, top: `${region.y / page.height * rect.height}px`, width: `${region.width / page.width * rect.width}px`, height: `${region.height / page.height * rect.height}px`, transform: `rotate(${region.rotation || 0}deg)` });
+      const fitText = node => {
+        let size = Math.min(16, Math.max(8, node.clientHeight * .42));
+        node.style.fontSize = `${size}px`;
+        while (size > 6 && (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth)) {
+          size -= .5; node.style.fontSize = `${size}px`;
+        }
+      };
       const applyRendered = (id, assetURL, label) => {
         const target = targetFor(id); if (!target) return false;
         target.layer.replaceChildren();
@@ -944,7 +1106,7 @@ private enum ReaderBridge {
       const applyRegions = (id, regions, page, semanticOnly) => {
         const target = targetFor(id); if (!target) return false;
         if (!semanticOnly) target.layer.replaceChildren();
-        regions.forEach(region => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, region, page, target.rect); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:3px;background:rgba(255,253,245,.94);color:#17130e;border-radius:4px;text-align:center;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.15;overflow:hidden;'; target.layer.append(node); }); return true;
+        regions.forEach(region => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, region, page, target.rect); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:2px;background:rgba(255,253,245,.96);color:#17130e;border-radius:4px;text-align:center;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.08;overflow:hidden;word-break:break-word;'; target.layer.append(node); if (!semanticOnly) fitText(node); }); return true;
       };
       const relayout = () => layers.forEach((_, id) => layout(id));
       window.__comicSubReaderBridge = { scan, scrollToCandidate: id => { const image = imageFor(id); if (image) image.scrollIntoView({ block: 'start', behavior: 'auto' }); return !!image; }, applyRendered, applyRegions, relayout, clear: id => { layers.get(id)?.remove(); layers.delete(id); } };
@@ -1406,6 +1568,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                     }
                     try await group.waitForAll()
                 }
+                try await client.flushBatch(batch.batchId)
                 for (offset, job) in window {
                     try Task.checkCancellation()
                     guard navigationID == expectedNavigationID else { throw BrokerError.cancelled }
@@ -1530,11 +1693,16 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private func routeContract() async throws -> Bool {
         switch settings.route {
         case .automatic:
+            let state = await translationCapability.check(source: settings.sourceLanguage, target: settings.targetLanguage)
+            if state == .installed {
+                return true
+            }
             if !settingsStore.loadToken().isEmpty,
                BrokerEndpointPolicy.allows(brokerEndpoint, discovered: discoveredBroker) {
                 return false
             }
-            fallthrough
+            if state == .downloadable { presentLanguageDownload() }
+            throw BrokerError.request(state.message)
         case .onDevice:
             let state = await translationCapability.check(source: settings.sourceLanguage, target: settings.targetLanguage)
             guard state == .installed else {
@@ -2303,8 +2471,8 @@ private final class ReaderSettingsController: UITableViewController {
         let endpoint = brokerConnection
         let route: String
         switch settings.route {
-        case .automatic: route = text("Automatic: configured broker first, on-device fallback", "Tự chọn: ưu tiên broker đã cấu hình, fallback trên thiết bị")
-        case .onDevice: route = text("Text: Apple Translation when the pack is installed", "Văn bản: Apple Translation khi gói có sẵn")
+        case .automatic: route = text("Automatic: on-device first, configured broker fallback", "Tự chọn: ưu tiên trên thiết bị, fallback broker đã cấu hình")
+        case .onDevice: route = text("Apple Vision + Translation when the pack is installed", "Apple Vision + Translation khi gói có sẵn")
         case .privateServer: route = text("Private server: \(endpoint)", "Server riêng: \(endpoint)")
         case .managedCloud: route = text("Managed Cloud: jobs are never sent automatically", "Managed Cloud: chưa gửi job tự động")
         }

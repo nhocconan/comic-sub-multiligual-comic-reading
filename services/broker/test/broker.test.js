@@ -364,3 +364,97 @@ test('Koharu adapter creates one project and one multi-page pipeline per window'
   assert.deepEqual(JSON.parse(pipeline.body).pages, ['page-1', 'page-2'])
   assert.deepEqual(results.map((result) => result.overlayRegions[0].translation), ['Một', 'Hai'])
 })
+
+test('explicit flush coalesces slow HTTP uploads from a partially uploaded batch', async () => {
+  class RecordingBatchAdapter extends ExplicitTestAdapter {
+    constructor() {
+      super()
+      this.batchSizes = []
+    }
+
+    translateBatch(contexts) {
+      this.batchSizes.push(contexts.length)
+      return super.translateBatch(contexts)
+    }
+  }
+
+  const adapter = new RecordingBatchAdapter()
+  const app = await fixture(adapter)
+  try {
+    const threePageSnapshot = snapshot()
+    for (let index = 2; index <= 3; index += 1) {
+      threePageSnapshot.candidates.push({
+        ...threePageSnapshot.candidates[0],
+        candidateId: `candidate-${index}`,
+        domOrdinal: index - 1,
+        sourceUrl: `https://cdn.example/page-${index}.png`,
+      })
+    }
+    await json(await fetch(`${app.base}/v1/snapshots`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(threePageSnapshot),
+    }))
+    const batch = await json(await fetch(`${app.base}/v1/job-batches`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'idempotency-key': 'slow-window-key',
+      },
+      body: JSON.stringify({
+        ...batchRequest(),
+        candidateIds: ['candidate-1', 'candidate-2', 'candidate-3'],
+      }),
+    }))
+    const slowBody = new ReadableStream({
+      start(controller) {
+        controller.enqueue(PNG.subarray(0, 8))
+        setTimeout(() => {
+          controller.enqueue(PNG.subarray(8))
+          controller.close()
+        }, 250)
+      },
+    })
+    const slowUpload = fetch(
+      `${app.base}/v1/jobs/${encodeURIComponent(batch.jobIds[1])}/asset`,
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'image/png', 'x-content-sha256': HASH },
+        body: slowBody,
+        duplex: 'half',
+      },
+    )
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    const fastUpload = fetch(
+      `${app.base}/v1/jobs/${encodeURIComponent(batch.jobIds[0])}/asset`,
+      {
+        method: 'PUT',
+        headers: { 'content-type': 'image/png', 'x-content-sha256': HASH },
+        body: PNG,
+      },
+    )
+    await Promise.all([slowUpload, fastUpload].map(async (pending) => json(await pending)))
+    const flushedAt = Date.now()
+    await json(await fetch(
+      `${app.base}/v1/job-batches/${encodeURIComponent(batch.batchId)}/flush`,
+      { method: 'POST' },
+    ))
+    const deadline = Date.now() + 2_000
+    while (batch.jobIds.slice(0, 2).some((jobId) =>
+      app.broker.getJob({ tenantId: 'local', deviceId: 'local-device' }, jobId).state !== 'SETTLED')) {
+      assert.ok(Date.now() < deadline, 'flushed HTTP window did not settle promptly')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.ok(Date.now() - flushedAt < 1_000, 'flush waited for the fallback timer')
+    assert.deepEqual(adapter.batchSizes, [2])
+    assert.equal(
+      app.broker.getJob(
+        { tenantId: 'local', deviceId: 'local-device' },
+        batch.jobIds[2],
+      ).state,
+      'WAITING_ASSET',
+    )
+  } finally {
+    await app.close()
+  }
+})

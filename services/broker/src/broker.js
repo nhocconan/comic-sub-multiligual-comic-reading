@@ -235,6 +235,12 @@ export class TranslationBroker {
     })
   }
 
+  flushBatch(principal, batchId) {
+    const batch = this.getBatch(principal, batchId)
+    this.#scheduleBatch(batchId, { immediate: true })
+    return batch
+  }
+
   getJob(principal, jobId) {
     return this.repository.read((state) => {
       const job = state.jobs[jobId]
@@ -393,13 +399,18 @@ export class TranslationBroker {
     })
   }
 
-  #scheduleBatch(batchId) {
+  #scheduleBatch(batchId, { immediate = false } = {}) {
     const existing = this.batchTimers.get(batchId)
     if (existing) clearTimeout(existing)
+    const allAssetsReady = this.repository.read((state) => {
+      const batch = state.batches[batchId]
+      return Boolean(batch) && batch.jobIds.every((jobId) =>
+        state.jobs[jobId]?.state !== 'WAITING_ASSET')
+    })
     const timer = setTimeout(() => {
       this.batchTimers.delete(batchId)
       void this.#processReadyBatch(batchId)
-    }, 75)
+    }, immediate || allAssetsReady ? 0 : 3_000)
     timer.unref?.()
     this.batchTimers.set(batchId, timer)
   }
