@@ -43,6 +43,7 @@ let historyPersistTimer
 let pendingHistory
 let activeSnapshot = null
 let activeJobs = new Map()
+let tokenConfiguredCache = false
 const readerBounds = { x: 296, y: 84, width: 820, height: 740 }
 const appIconPath = path.join(__dirname, 'build', 'icon.png')
 
@@ -81,28 +82,130 @@ function saveState() {
   fs.writeFileSync(dataPath('reader-state.json'), JSON.stringify(safe, null, 2), { mode: 0o600 })
 }
 
-function tokenStatus() {
-  try { return fs.existsSync(dataPath('provider-token.bin')) } catch { return false }
+function nativeCredentialExecutable() {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'bin', 'manga-sub-credentials')
+    : path.join(__dirname, 'bin', 'manga-sub-credentials')
 }
 
-function readToken() {
+function runCredentialHelper(command, input = null) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(nativeCredentialExecutable(), [command], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const output = []
+    const errors = []
+    let outputBytes = 0
+    let errorBytes = 0
+    let settled = false
+    const finish = (error, value = '') => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      if (error) reject(error)
+      else resolve(value)
+    }
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL')
+      const error = new BrokerClientError(
+        'CREDENTIAL_TIMEOUT',
+        'Credential store phản hồi quá chậm. Manga Sub đã dừng yêu cầu thay vì khóa giao diện.',
+      )
+      finish(error)
+    }, 5_000)
+    child.stdout.on('data', (chunk) => {
+      outputBytes += chunk.length
+      if (outputBytes > 8_192) child.kill('SIGKILL')
+      else output.push(chunk)
+    })
+    child.stderr.on('data', (chunk) => {
+      errorBytes += chunk.length
+      if (errorBytes <= 4_096) errors.push(chunk)
+    })
+    child.on('error', (cause) => {
+      finish(new BrokerClientError('CREDENTIAL_HELPER_FAILED', cause.message))
+    })
+    child.on('close', (code) => {
+      if (settled) return
+      if (code === 0) {
+        finish(null, Buffer.concat(output).toString('utf8'))
+        return
+      }
+      const detail = Buffer.concat(errors).toString('utf8').trim()
+      const error = new BrokerClientError(
+        detail === 'not-found' ? 'CREDENTIAL_MISSING' : 'CREDENTIAL_STORE_FAILED',
+        detail === 'not-found'
+          ? 'Chưa có broker token trong credential store.'
+          : 'Không thể đọc credential store của hệ điều hành.',
+      )
+      finish(error)
+    })
+    child.stdin.on('error', () => {})
+    child.stdin.end(input === null ? undefined : Buffer.from(input, 'utf8'))
+  })
+}
+
+function tokenStatus() {
+  return tokenConfiguredCache
+}
+
+async function refreshTokenStatus() {
+  if (process.platform !== 'darwin') {
+    try { tokenConfiguredCache = fs.existsSync(dataPath('provider-token.bin')) } catch { tokenConfiguredCache = false }
+    return tokenConfiguredCache
+  }
+  try {
+    await runCredentialHelper('status')
+    tokenConfiguredCache = true
+  } catch {
+    tokenConfiguredCache = false
+  }
+  return tokenConfiguredCache
+}
+
+async function readToken() {
+  if (process.platform === 'darwin') {
+    try {
+      const value = await runCredentialHelper('read')
+      tokenConfiguredCache = Boolean(value)
+      return value
+    } catch (error) {
+      if (error.code === 'CREDENTIAL_MISSING') {
+        tokenConfiguredCache = false
+        return ''
+      }
+      throw error
+    }
+  }
   try {
     const value = fs.readFileSync(dataPath('provider-token.bin'))
     return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(value) : value.toString('utf8')
   } catch { return '' }
 }
 
-function writeToken(token) {
+async function writeToken(token) {
   const value = String(token || '').trim()
   if (!value) {
+    if (process.platform === 'darwin') {
+      await runCredentialHelper('delete')
+      tokenConfiguredCache = false
+      return false
+    }
     fs.rmSync(dataPath('provider-token.bin'), { force: true })
+    tokenConfiguredCache = false
     return false
   }
   if (value.length > 4096 || /[\r\n]/.test(value)) throw new Error('Token không hợp lệ.')
+  if (process.platform === 'darwin') {
+    await runCredentialHelper('write', value)
+    tokenConfiguredCache = true
+    return true
+  }
   const encoded = safeStorage.isEncryptionAvailable()
     ? safeStorage.encryptString(value)
     : Buffer.from(value, 'utf8')
   fs.writeFileSync(dataPath('provider-token.bin'), encoded, { mode: 0o600 })
+  tokenConfiguredCache = true
   return true
 }
 
@@ -227,10 +330,10 @@ function commandReader(command) {
   if (readerView && !readerView.webContents.isDestroyed()) readerView.webContents.send('reader:command', command)
 }
 
-function brokerClient() {
+async function brokerClient() {
   return createBrokerClient({
     endpoint: state.settings.brokerEndpoint || 'https://comic-be.dep.app',
-    token: readToken(),
+    token: await readToken(),
     deviceId: state.deviceId,
   })
 }
@@ -535,7 +638,7 @@ async function runBrokerJob(client, snapshot, job, candidate, controller) {
 
 async function runBrokerBatch(snapshot, selectedIds) {
   if (snapshot.isTestMode) throw new BrokerClientError('SAMPLE_MODE_ONLY', 'Chương mẫu chỉ để kiểm tra UI; hãy mở URL HTTP(S) để dịch qua broker.')
-  const client = brokerClient()
+  const client = await brokerClient()
   // This is best-effort metadata enrichment. Series intelligence is never a
   // prerequisite for translating a page, and is deliberately skipped in a
   // private session.
@@ -634,7 +737,7 @@ ipcMain.handle('app:save-settings', (_event, patch) => {
   emit('app:settings', publicState().settings)
   return publicState().settings
 })
-ipcMain.handle('app:set-token', (_event, token) => ({ tokenConfigured: writeToken(token) }))
+ipcMain.handle('app:set-token', async (_event, token) => ({ tokenConfigured: await writeToken(token) }))
 ipcMain.handle('app:set-private', (_event, enabled) => {
   privateSession = Boolean(enabled)
   createReader({ url: activeReaderUrl, isPrivate: privateSession })
@@ -694,6 +797,9 @@ ipcMain.on('reader:status', (event, payload) => {
   if (payload?.type === 'job-complete' && activeReaderUrl) recordHistory(activeReaderUrl, { ...payload, translated: true })
 })
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  createWindow()
+  void refreshTokenStatus().then(() => emit('app:settings', publicState().settings))
+})
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

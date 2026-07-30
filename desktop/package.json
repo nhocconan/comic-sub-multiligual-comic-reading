@@ -30,7 +30,7 @@
       {
         "from": "bin",
         "to": "bin",
-        "filter": ["manga-sub-ocr"]
+        "filter": ["manga-sub-ocr", "manga-sub-credentials"]
       }
     ],
     "mac": {

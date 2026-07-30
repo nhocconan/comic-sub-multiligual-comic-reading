@@ -23,6 +23,7 @@ test('reader scans AMP comic image hosts used by Baozimh', () => {
   assert.match(source, /window\.addEventListener\('scroll', scheduleOverlayRelayout/)
   assert.match(source, /safeOverlayText\(region\.translation\)/)
   assert.match(source, /function fitOverlayText\(overlay, maximumFontSize\)/)
+  assert.match(source, /Math\.min\(21, rawHeight \* \.72, imageRect\.width \/ 34\)/)
   assert.match(source, /function canonicalRegions\(regions\)/)
   assert.match(source, /function scheduleOverlayRelayout\(\)/)
   assert.match(source, /new ResizeObserver\(scheduleOverlayRelayout\)/)
@@ -52,4 +53,14 @@ test('desktop cloud path OCRs locally and sends text geometry without uploading 
   assert.doesNotMatch(batch, /client\.upload/)
   assert.doesNotMatch(job, /fetchRegisteredAsset/)
   assert.doesNotMatch(job, /client\.upload/)
+})
+
+test('macOS credential access runs out of process with a bounded timeout', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'main.cjs'), 'utf8')
+  assert.match(source, /function runCredentialHelper\(command, input = null\)/)
+  assert.match(source, /spawn\(nativeCredentialExecutable\(\), \[command\]/)
+  assert.match(source, /'CREDENTIAL_TIMEOUT'/)
+  assert.match(source, /}, 5_000\)/)
+  assert.match(source, /token: await readToken\(\)/)
+  assert.match(source, /const client = await brokerClient\(\)/)
 })

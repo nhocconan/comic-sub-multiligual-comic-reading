@@ -286,7 +286,9 @@ function layoutOverlay(overlay, descriptor) {
   const scaleY = imageRect.height / pageHeight
   const rawWidth = Math.max(24, Number(region.width) * scaleX)
   const rawHeight = Math.max(18, Number(region.height) * scaleY)
-  const maximumFontSize = Math.max(11, Math.min(25, rawHeight * .72, imageRect.width / 30))
+  // Keep desktop dialogue comfortably readable without letting a long line
+  // dominate the panel at narrow side-by-side window sizes.
+  const maximumFontSize = Math.max(11, Math.min(21, rawHeight * .72, imageRect.width / 34))
   // Geometry belongs to the source bubble. It may grow only by a small,
   // bounded margin. The dedicated layer clips every pixel at the image edge,
   // independent of the source site's DOM nesting.
