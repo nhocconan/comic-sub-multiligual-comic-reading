@@ -1088,7 +1088,20 @@ private enum ReaderBridge {
           handler.postMessage({ type: 'anchor', id: idFor(current), index, ratio: Math.max(0, Math.min(1, (innerHeight * .25 - rect.top) / Math.max(rect.height, 1))), scrollRatio: scrollY / Math.max(document.documentElement.scrollHeight - innerHeight, 1) });
         }, 280);
       };
-      const imageFor = id => [...document.images].find(item => idFor(item) === id);
+      const normalizedURL = value => {
+        try { return new URL(value, location.href).href; } catch (_) { return value || ''; }
+      };
+      const imageFor = (id, index, sourceURL) => {
+        const images = [...document.images];
+        let image = images.find(item => item.__comicSubCandidateId === id);
+        if (!image && sourceURL) {
+          const expectedURL = normalizedURL(sourceURL);
+          image = images.find(item => normalizedURL(candidateURL(item)) === expectedURL);
+        }
+        if (!image && Number.isInteger(index) && index >= 0 && index < images.length) image = images[index];
+        if (image) image.__comicSubCandidateId = id;
+        return image || null;
+      };
       const currentCandidateId = () => {
         const ranked = [...document.images].filter(visible).map(image => {
           const rect = image.getBoundingClientRect();
@@ -1105,16 +1118,16 @@ private enum ReaderBridge {
         layer.dataset.comicSubLayer = id; layer.style.cssText = 'position:absolute;z-index:2147483000;pointer-events:none;overflow:hidden;';
         document.body.append(layer); layers.set(id, layer); return layer;
       };
-      const layout = id => {
-        const image = imageFor(id), layer = layers.get(id); if (!image || !layer) return null;
+      const layout = (id, index, sourceURL) => {
+        const image = imageFor(id, index, sourceURL), layer = layers.get(id); if (!image || !layer) return null;
         const rect = image.getBoundingClientRect();
         Object.assign(layer.style, { left: `${rect.left + scrollX}px`, top: `${rect.top + scrollY}px`, width: `${rect.width}px`, height: `${rect.height}px` });
         return { image, layer, rect };
       };
-      const targetFor = id => {
-        if (!imageFor(id)) return null;
+      const targetFor = (id, index, sourceURL) => {
+        if (!imageFor(id, index, sourceURL)) return null;
         ensureLayer(id);
-        return layout(id);
+        return layout(id, index, sourceURL);
       };
       const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
       const geometryFor = (region, page, rect, expandForTranslation = false) => {
@@ -1183,13 +1196,13 @@ private enum ReaderBridge {
           size -= .5; node.style.fontSize = `${size}px`;
         }
       };
-      const applyRendered = (id, assetURL, label) => {
-        const target = targetFor(id); if (!target) return false;
+      const applyRendered = (id, index, sourceURL, assetURL, label) => {
+        const target = targetFor(id, index, sourceURL); if (!target) return false;
         target.layer.replaceChildren();
         const image = document.createElement('img'); image.src = assetURL; image.alt = label; image.setAttribute('role', 'img'); image.style.cssText = 'width:100%;height:100%;display:block;'; target.layer.append(image); return true;
       };
-      const applyRegions = (id, regions, page, semanticOnly) => {
-        const target = targetFor(id); if (!target) return false;
+      const applyRegions = (id, index, sourceURL, regions, page, semanticOnly) => {
+        const target = targetFor(id, index, sourceURL); if (!target) return false;
         if (!semanticOnly) target.layer.replaceChildren();
         const boxes = separateOverlaps(regions.map(region => geometryFor(region, page, target.rect, !semanticOnly)));
         regions.forEach((region, index) => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, boxes[index]); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:2px;background:rgba(255,253,245,.96);color:#17130e;border-radius:4px;text-align:center;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.08;overflow:hidden;word-break:break-word;'; target.layer.append(node); if (!semanticOnly) fitText(node); }); return true;
@@ -1673,7 +1686,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                     guard settled.state == "SETTLED" else { throw BrokerError.request(uiText("The job ended in state \(settled.state).", "Job kết thúc ở trạng thái \(settled.state).")) }
                     let result = try await client.result(job.jobId)
                     try verifyReceipt(result.modelReceipt, clientDevice: false)
-                    attachRegions(result, to: selected[offset])
+                    try await attachRegions(result, to: selected[offset])
                     recordSuccessfulTranslation(result, series: series, client: client)
                     activeJobIDs.remove(job.jobId)
                     updateRouteStatus(uiText(
@@ -1795,7 +1808,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                     modelMatched: true
                 )
             )
-            attachRegions(result, to: candidate)
+            try await attachRegions(result, to: candidate)
             mergeContinuity(recognized.regions.map {
                 SeriesTerm(sourceTerm: $0.source, targetTerm: $0.translation, confidence: $0.confidence ?? 0.8)
             }, into: series)
@@ -2206,23 +2219,38 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         if !silent { updateRouteStatus(uiText("Cancelling job; original images remain visible.", "Đang huỷ job; ảnh gốc vẫn hiển thị.")) }
     }
 
-    private func attachRendered(_ bytes: Data, mimeType: String, result: BrokerResult, to candidate: WebCandidate) {
+    private func attachRendered(_ bytes: Data, mimeType: String, result: BrokerResult, to candidate: WebCandidate) async throws {
         let assetURL = assetHandler.register(bytes, mimeType: mimeType)
         let label = result.overlayRegions.map(\.translation).filter { !$0.isEmpty }.joined(separator: ". ")
         let page = ["width": result.page.width, "height": result.page.height]
         let regions = (try? JSONEncoder().encode(result.overlayRegions)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
-        evaluateBridge("window.__comicSubReaderBridge && window.__comicSubReaderBridge.applyRendered(\(javascriptString(candidate.id)), \(javascriptString(assetURL.absoluteString)), \(javascriptString(label))); window.__comicSubReaderBridge && window.__comicSubReaderBridge.applyRegions(\(javascriptString(candidate.id)), \(regions), \(jsonObject(page)), true);")
+        let script = "window.__comicSubReaderBridge && window.__comicSubReaderBridge.applyRendered(\(javascriptString(candidate.id)), \(candidate.index), \(javascriptString(candidate.url)), \(javascriptString(assetURL.absoluteString)), \(javascriptString(label))) && window.__comicSubReaderBridge.applyRegions(\(javascriptString(candidate.id)), \(candidate.index), \(javascriptString(candidate.url)), \(regions), \(jsonObject(page)), true);"
+        try await requireAttachedOverlay(script)
     }
 
-    private func attachRegions(_ result: BrokerResult, to candidate: WebCandidate) {
+    private func attachRegions(_ result: BrokerResult, to candidate: WebCandidate) async throws {
         let regions = (try? JSONEncoder().encode(result.overlayRegions)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
         let page = ["width": result.page.width, "height": result.page.height]
-        evaluateBridge("window.__comicSubReaderBridge && window.__comicSubReaderBridge.applyRegions(\(javascriptString(candidate.id)), \(regions), \(jsonObject(page)), false);")
+        let script = "window.__comicSubReaderBridge && window.__comicSubReaderBridge.applyRegions(\(javascriptString(candidate.id)), \(candidate.index), \(javascriptString(candidate.url)), \(regions), \(jsonObject(page)), false);"
+        try await requireAttachedOverlay(script)
     }
 
-    private func evaluateBridge(_ script: String) {
-        webView.evaluateJavaScript(script) { [weak self] result, error in
-            if error != nil || (result as? Bool) == false { self?.updateRouteStatus(uiText("Could not attach the overlay; original images remain visible.", "Không gắn được overlay; ảnh gốc vẫn hiển thị.")) }
+    private func requireAttachedOverlay(_ script: String) async throws {
+        do {
+            let result = try await webView.evaluateJavaScript(script)
+            guard (result as? Bool) == true else {
+                throw BrokerError.request(uiText(
+                    "The page replaced its comic image before the translation overlay could attach.",
+                    "Trang đã thay ảnh truyện trước khi overlay bản dịch được gắn."
+                ))
+            }
+        } catch let error as BrokerError {
+            throw error
+        } catch {
+            throw BrokerError.request(uiText(
+                "Could not attach the translation overlay. Original images remain visible.",
+                "Không gắn được overlay bản dịch. Ảnh gốc vẫn hiển thị."
+            ))
         }
     }
 

@@ -56,17 +56,23 @@ test('iOS automatic mode prefers an installed language pack and pins remote Gemi
 test('iOS overlay bridge creates its layer before layout and rendering', () => {
   assert.match(
     source,
-    /const targetFor = id => \{[\s\S]*?ensureLayer\(id\);[\s\S]*?return layout\(id\);[\s\S]*?\};/,
+    /const targetFor = \(id, index, sourceURL\) => \{[\s\S]*?ensureLayer\(id\);[\s\S]*?return layout\(id, index, sourceURL\);[\s\S]*?\};/,
   )
-  assert.match(source, /const applyRendered = [\s\S]*?const target = targetFor\(id\)/)
-  assert.match(source, /const applyRegions = [\s\S]*?const target = targetFor\(id\)/)
+  assert.match(source, /const applyRendered = [\s\S]*?const target = targetFor\(id, index, sourceURL\)/)
+  assert.match(source, /const applyRegions = [\s\S]*?const target = targetFor\(id, index, sourceURL\)/)
+  assert.match(source, /normalizedURL\(candidateURL\(item\)\) === expectedURL/)
+  assert.match(source, /image = images\[index\]/)
+  assert.match(source, /image\.__comicSubCandidateId = id/)
+  assert.match(source, /try await attachRegions\(result, to: candidate\)/)
+  assert.match(source, /let result = try await webView\.evaluateJavaScript\(script\)/)
+  assert.match(source, /guard \(result as\? Bool\) == true/)
 })
 
 test('iOS reader renders broker regions directly and ignores its own overlay mutations', () => {
   const remoteFlow = source.match(
     /private func translate\(_ selected:[\s\S]*?private func translateFullyOnDevice/,
   )?.[0] ?? ''
-  assert.match(remoteFlow, /attachRegions\(result, to: selected\[offset\]\)/)
+  assert.match(remoteFlow, /try await attachRegions\(result, to: selected\[offset\]\)/)
   assert.doesNotMatch(remoteFlow, /client\.renderedAsset/)
   assert.match(source, /const belongsToReaderLayer =/)
   assert.match(source, /mutations\.some\(mutation => !isReaderMutation\(mutation\)\)/)
