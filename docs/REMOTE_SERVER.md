@@ -68,6 +68,28 @@ docker compose --env-file deploy/remote/.env \
 Allow inbound TCP 80/443 and UDP 443. The Caddy container reaches only the
 loopback-published Koharu service through Docker's host gateway.
 
+### Existing Traefik host
+
+On a server where Traefik already owns ports 80 and 443, use the production
+template instead of starting the standalone Caddy bundle:
+
+```bash
+cp docker-compose.prod.yml.sample docker-compose.prod.yml
+mkdir -p private
+chmod 700 private
+# Add five random BONG_BONG_AUTH_KEY_1..5 values to this ignored file.
+openssl rand -hex 32
+$EDITOR private/auth-keys.env
+chmod 600 private/auth-keys.env
+docker compose -f docker-compose.prod.yml up -d
+```
+
+The production gateway joins the external `traefik-network`; Koharu itself has
+no published host port. Traefik terminates TLS, and the internal Caddy gateway
+accepts any of the five independent Bearer keys before proxying to Koharu.
+`docker-compose.prod.yml` and the entire `private/` directory are ignored, while
+`docker-compose.prod.yml.sample` remains tracked as the deployment template.
+
 ## 4. Configure Comic Sub
 
 In extension settings:

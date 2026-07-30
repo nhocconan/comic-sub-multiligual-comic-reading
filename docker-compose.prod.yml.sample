@@ -1,0 +1,74 @@
+# Production template for the shared Traefik host.
+# Copy to docker-compose.prod.yml, create private/auth-keys.env with
+# BONG_BONG_AUTH_KEY_1 through BONG_BONG_AUTH_KEY_5, then run:
+#   docker compose -f docker-compose.prod.yml up -d
+name: comic-sub-backend
+
+services:
+  koharu:
+    image: ghcr.io/mayocream/koharu:0.61.2@sha256:3293b67323c7fcd0d88a5b7ee27493a0fa03d9a47291642af85618f6543f1f88
+    platform: linux/amd64
+    init: true
+    restart: unless-stopped
+    volumes:
+      - koharu-data:/home/koharu/.local/share/Koharu
+      - koharu-secrets:/home/koharu/.koharu
+    networks:
+      - internal
+    security_opt:
+      - no-new-privileges:true
+
+  gateway:
+    image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
+    restart: unless-stopped
+    depends_on:
+      - koharu
+    env_file:
+      - ./private/auth-keys.env
+    volumes:
+      - ./deploy/remote/Caddyfile.traefik:/etc/caddy/Caddyfile:ro
+    networks:
+      - internal
+      - traefik-network
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'wget --quiet --spider --header "Authorization: Bearer $${BONG_BONG_AUTH_KEY_1}" http://127.0.0.1/api/v1/meta'
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-network
+      - traefik.http.services.comic-be.loadbalancer.server.port=80
+      - traefik.http.routers.comic-be.rule=Host(`${BONG_BONG_DOMAIN:-comic-be.dep.app}`)
+      - traefik.http.routers.comic-be.entrypoints=websecure
+      - traefik.http.routers.comic-be.tls=true
+      - traefik.http.routers.comic-be.tls.certresolver=mytlschallenge
+      - traefik.http.routers.comic-be.service=comic-be
+      - traefik.http.routers.comic-be.middlewares=comic-be-sec,comic-be-rate,comic-be-compress
+      - traefik.http.middlewares.comic-be-sec.headers.stsSeconds=31536000
+      - traefik.http.middlewares.comic-be-sec.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.comic-be-sec.headers.stsPreload=true
+      - traefik.http.middlewares.comic-be-sec.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.comic-be-sec.headers.frameDeny=true
+      - traefik.http.middlewares.comic-be-sec.headers.referrerPolicy=no-referrer
+      - traefik.http.middlewares.comic-be-sec.headers.customResponseHeaders.Permissions-Policy=camera=(), microphone=(), geolocation=()
+      - traefik.http.middlewares.comic-be-rate.ratelimit.average=120
+      - traefik.http.middlewares.comic-be-rate.ratelimit.burst=240
+      - traefik.http.middlewares.comic-be-rate.ratelimit.period=1s
+      - traefik.http.middlewares.comic-be-compress.compress=true
+
+volumes:
+  koharu-data:
+  koharu-secrets:
+
+networks:
+  internal:
+    driver: bridge
+  traefik-network:
+    external: true
+    name: traefik-network

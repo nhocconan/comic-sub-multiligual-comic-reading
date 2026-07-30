@@ -9,13 +9,9 @@ import sharp from 'sharp'
 
 const root = resolve(import.meta.dirname, '..')
 const sourceExtensionPath = resolve(root, 'extension')
-const readerPort = 43101
-const imagePort = 43102
-const koharuPort = Number(process.env.BONG_BONG_E2E_KOHARU_PORT || 44000)
-assert.ok(
-  Number.isInteger(koharuPort) && koharuPort >= 1024 && koharuPort <= 65_535,
-  'BONG_BONG_E2E_KOHARU_PORT must be a non-privileged TCP port',
-)
+let readerPort = 0
+let imagePort = 0
+let koharuPort = 0
 
 function crc32(buffer) {
   let crc = 0xffffffff
@@ -63,7 +59,7 @@ function solidPng(red, green, blue, width = 800, height = 1200) {
 function listen(server, port) {
   return new Promise((resolveListen, reject) => {
     server.once('error', reject)
-    server.listen(port, '127.0.0.1', () => resolveListen())
+    server.listen(port, '127.0.0.1', () => resolveListen(server.address().port))
   })
 }
 
@@ -397,7 +393,7 @@ let context
 let profile
 
 try {
-  await Promise.all([
+  ;[readerPort, imagePort, koharuPort] = await Promise.all([
     listen(readerServer, readerPort),
     listen(imageServer, imagePort),
     listen(koharuServer, koharuPort),
