@@ -10,13 +10,19 @@
   <body>
     <main class="shell">
       <header class="topbar">
-        <div class="brand"><span class="brand-mark">M</span><span>Manga Sub</span><em>DESKTOP</em></div>
+        <div class="brand-area">
+          <button class="chrome-toggle" id="toggle-sidebar" type="button" aria-label="Ẩn thanh công cụ" aria-pressed="false" title="Ẩn/hiện thanh công cụ">☰</button>
+          <div class="brand"><span class="brand-mark">M</span><span>Manga Sub</span><em>DESKTOP</em></div>
+        </div>
         <form id="address-form" class="address" aria-label="Mở chương truyện">
           <button type="button" id="back-button" title="Quay lại">←</button>
           <input id="address-input" autocomplete="off" spellcheck="false" placeholder="Dán link chương truyện…" />
           <button class="open-button" type="submit">Open</button>
         </form>
-        <button class="private-toggle" id="private-toggle" type="button"><span class="private-dot"></span>Private session</button>
+        <div class="topbar-actions">
+          <button class="chrome-toggle" id="toggle-inspector" type="button" aria-label="Hiện thông tin phiên" aria-pressed="false" title="Ẩn/hiện thông tin phiên">◧</button>
+          <button class="private-toggle" id="private-toggle" type="button"><span class="private-dot"></span>Private session</button>
+        </div>
       </header>
 
       <aside class="sidebar">

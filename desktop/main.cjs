@@ -4,10 +4,18 @@ const { app, BrowserWindow, WebContentsView, ipcMain, session, shell, safeStorag
 const fs = require('node:fs')
 const path = require('node:path')
 const { randomUUID } = require('node:crypto')
+const { spawn } = require('node:child_process')
 const { DEFAULT_SETTINGS, migrateSettings, safeAssetReferrer, safeUrl } = require('./lib/domain.cjs')
 const { ALLOWED_TYPES, BrokerClientError, createBrokerClient, normalizeEndpoint, readBounded, sha256, sniffImageType } = require('./lib/broker-client.cjs')
 
 function prepareUserDataPath() {
+  const isolatedPath = String(process.env.MANGA_SUB_USER_DATA_DIR || '').trim()
+  if (isolatedPath) {
+    const resolved = path.resolve(isolatedPath)
+    fs.mkdirSync(resolved, { recursive: true })
+    app.setPath('userData', resolved)
+    return
+  }
   const appData = app.getPath('appData')
   const nextPath = path.join(appData, 'Manga Sub')
   const legacyPaths = [
@@ -269,7 +277,7 @@ async function fetchRegisteredAsset(candidate, snapshot, signal) {
   return { bytes, contentType, sha256: sha256(bytes), candidateId: candidate.candidateId }
 }
 
-function batchPayload(snapshot, candidateIds) {
+function batchPayload(snapshot, candidateIds, clientOcr = {}) {
   const managed = processingLocus() === 'managed'
   const glossary = state.seriesGlossary || { id: 'local-continuity', version: state.glossary.length, hash: '0'.repeat(64) }
   return {
@@ -283,13 +291,153 @@ function batchPayload(snapshot, candidateIds) {
       credentialRef: state.settings.route === 'byo' ? 'desktop:byo' : undefined,
       allowedFallbacks: [],
     },
-    pipeline: { translationMode: 'server', ocrVersion: 'paddle-ocr-vl-1.6', layoutVersion: 'comic-text-bubble-detector', renderVersion: 'source-overlay-v1', promptVersion: 'zh-comic-vi-v1' },
+    pipeline: { translationMode: 'client-ocr', ocrVersion: 'native-vision', layoutVersion: 'client-geometry', renderVersion: 'source-overlay-v1', promptVersion: 'zh-comic-vi-v1' },
+    clientOcr,
     language: { source: 'zh-Hans', target: state.settings.targetLanguage.startsWith('vi') ? 'vi' : state.settings.targetLanguage.split('-')[0] },
     translationStyle: 'natural-dialogue',
     glossarySnapshot: { id: glossary.id, version: glossary.version, hash: glossary.hash },
     privacyPolicyVersion: 'desktop-v1',
     budget: { currency: 'USD', maxMicros: managed ? 500000 : 0 },
   }
+}
+
+function nativeOcrExecutable() {
+  if (process.platform !== 'darwin') {
+    throw new BrokerClientError(
+      'LOCAL_OCR_UNAVAILABLE',
+      'Bản này chưa đóng gói OCR local cho hệ điều hành hiện tại.',
+    )
+  }
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'bin', 'manga-sub-ocr')
+    : path.join(__dirname, 'bin', 'manga-sub-ocr')
+}
+
+function isPublisherWatermark(text) {
+  const compact = String(text || '').replace(/\s+/g, '').toLowerCase()
+  if (!compact) return true
+  return /(baozimh|包子漫[画畫]|最新免费漫画|最新免費漫畫|免费漫画|免費漫畫|www\.[a-z0-9-]+\.(?:com|net|org)|https?:\/\/)/i.test(compact)
+}
+
+function mergeLocalOcrRegions(value) {
+  const pageWidth = Number(value?.page?.width) || 0
+  const pageHeight = Number(value?.page?.height) || 0
+  const regions = (value?.regions || [])
+    .filter((region) => !isPublisherWatermark(region?.source))
+    .filter((region) => {
+      const y = Number(region?.y)
+      const width = Number(region?.width)
+      const height = Number(region?.height)
+      // Chapter headings are page chrome rather than dialogue. Keeping them
+      // out prevents a long translated title from becoming a card across the
+      // first panel, while ordinary top-edge speech remains eligible.
+      return !(y < pageHeight * 0.07
+        && width > pageWidth * 0.25
+        && height < pageHeight * 0.05)
+    })
+    .map((region) => ({
+      ...region,
+      x: Number(region.x),
+      y: Number(region.y),
+      width: Number(region.width),
+      height: Number(region.height),
+      confidence: Number(region.confidence) || 0,
+      source: String(region.source || '').trim(),
+    }))
+    .filter((region) => region.source && [region.x, region.y, region.width, region.height].every(Number.isFinite))
+    .sort((left, right) => left.y - right.y || left.x - right.x)
+
+  const merged = []
+  for (const region of regions) {
+    const regionRight = region.x + region.width
+    const regionBottom = region.y + region.height
+    const match = [...merged].reverse().find((candidate) => {
+      const candidateRight = candidate.x + candidate.width
+      const candidateBottom = candidate.y + candidate.height
+      const overlap = Math.max(0, Math.min(regionRight, candidateRight) - Math.max(region.x, candidate.x))
+      const overlapRatio = overlap / Math.max(1, Math.min(region.width, candidate.width))
+      const verticalGap = region.y - candidateBottom
+      const centerDelta = Math.abs(
+        (region.x + region.width / 2) - (candidate.x + candidate.width / 2),
+      )
+      return overlapRatio >= 0.38
+        && verticalGap >= -Math.min(region.height, candidate.height) * 0.3
+        && verticalGap <= Math.max(region.height, candidate.height) * 0.95
+        && centerDelta <= Math.max(region.width, candidate.width) * 0.62
+    })
+    if (!match) {
+      merged.push({ ...region })
+      continue
+    }
+    const left = Math.min(match.x, region.x)
+    const top = Math.min(match.y, region.y)
+    const right = Math.max(match.x + match.width, regionRight)
+    const bottom = Math.max(match.y + match.height, regionBottom)
+    const firstIsAbove = match.y <= region.y
+    match.source = firstIsAbove
+      ? `${match.source}\n${region.source}`
+      : `${region.source}\n${match.source}`
+    match.x = left
+    match.y = top
+    match.width = right - left
+    match.height = bottom - top
+    match.confidence = Math.min(match.confidence, region.confidence)
+  }
+  return {
+    page: { width: pageWidth, height: pageHeight },
+    regions: merged.slice(0, 200).map((region) => ({
+      ...region,
+      id: region.id || `vision-${randomUUID()}`,
+    })),
+  }
+}
+
+function recognizeLocalText(asset, language, signal) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(nativeOcrExecutable(), [language], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const output = []
+    const errors = []
+    let outputBytes = 0
+    const timeout = setTimeout(() => child.kill('SIGKILL'), 30_000)
+    const abort = () => child.kill('SIGKILL')
+    signal?.addEventListener('abort', abort, { once: true })
+    child.stdout.on('data', (chunk) => {
+      outputBytes += chunk.length
+      if (outputBytes > 4 * 1024 * 1024) child.kill('SIGKILL')
+      else output.push(chunk)
+    })
+    child.stderr.on('data', (chunk) => {
+      if (errors.reduce((sum, value) => sum + value.length, 0) < 16_384) errors.push(chunk)
+    })
+    child.on('error', reject)
+    child.on('close', (code) => {
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', abort)
+      if (signal?.aborted) {
+        reject(new BrokerClientError('CANCELLED', 'OCR local đã được hủy.'))
+        return
+      }
+      if (code !== 0) {
+        reject(new BrokerClientError(
+          'LOCAL_OCR_FAILED',
+          Buffer.concat(errors).toString('utf8').trim() || `OCR local dừng với mã ${code}.`,
+        ))
+        return
+      }
+      try {
+        const value = JSON.parse(Buffer.concat(output).toString('utf8'))
+        if (!(value?.page?.width > 0) || !(value?.page?.height > 0) || !Array.isArray(value?.regions)) {
+          throw new Error('OCR local trả payload không hợp lệ.')
+        }
+        resolve(mergeLocalOcrRegions(value))
+      } catch (error) {
+        reject(new BrokerClientError('LOCAL_OCR_INVALID', error.message))
+      }
+    })
+    child.stdin.end(asset.bytes)
+  })
 }
 
 function seriesBootstrapPayload(snapshot, observedRegions = []) {
@@ -369,10 +517,7 @@ async function pollJob(client, jobId, candidateId, controller) {
 
 async function runBrokerJob(client, snapshot, job, candidate, controller) {
   try {
-    readerStatus({ type: 'broker-progress', jobId: job.jobId, candidateId: candidate.candidateId, state: 'ACQUIRING' })
-    const asset = await fetchRegisteredAsset(candidate, snapshot, controller.signal)
-    assertCurrentNavigation(snapshot)
-    await client.uploadAsset(job.jobId, asset, controller.signal)
+    readerStatus({ type: 'broker-progress', jobId: job.jobId, candidateId: candidate.candidateId, state: 'TRANSLATING' })
     const result = await pollJob(client, job.jobId, candidate.candidateId, controller)
     const receipt = result.modelReceipt || {}
     if (!receipt.modelMatched || receipt.resolvedModel !== (state.settings.model || 'gemini-3.6-flash')) {
@@ -394,16 +539,28 @@ async function runBrokerBatch(snapshot, selectedIds) {
   // This is best-effort metadata enrichment. Series intelligence is never a
   // prerequisite for translating a page, and is deliberately skipped in a
   // private session.
-  await bootstrapSeriesGlossary(client, snapshot).catch(() => {})
+  void bootstrapSeriesGlossary(client, snapshot).catch(() => {})
   await client.registerSnapshot(snapshot)
   const candidateMap = new Map(snapshot.candidates.map((candidate) => [candidate.candidateId, candidate]))
   for (let offset = 0; offset < selectedIds.length; offset += 50) {
     assertCurrentNavigation(snapshot)
     const group = selectedIds.slice(offset, offset + 50)
-    const batch = await client.createBatch(batchPayload(snapshot, group))
     const controller = new AbortController()
-    for (const job of batch.jobs) activeJobs.set(job.jobId, { controller, client })
+    const clientOcr = {}
     let cursor = 0
+    const recognizeWorker = async () => {
+      while (cursor < group.length && !controller.signal.aborted) {
+        const candidateId = group[cursor++]
+        const candidate = candidateMap.get(candidateId)
+        readerStatus({ type: 'broker-progress', candidateId, state: 'OCR' })
+        const asset = await fetchRegisteredAsset(candidate, snapshot, controller.signal)
+        clientOcr[candidateId] = await recognizeLocalText(asset, 'zh-Hans', controller.signal)
+      }
+    }
+    await Promise.all(Array.from({ length: Math.min(2, group.length) }, recognizeWorker))
+    const batch = await client.createBatch(batchPayload(snapshot, group, clientOcr))
+    for (const job of batch.jobs) activeJobs.set(job.jobId, { controller, client })
+    cursor = 0
     const worker = async () => {
       while (cursor < batch.jobs.length && !controller.signal.aborted) {
         const job = batch.jobs[cursor++]
@@ -429,8 +586,8 @@ function createWindow() {
   windowRef = new BrowserWindow({
     width: 1480,
     height: 940,
-    minWidth: 1080,
-    minHeight: 700,
+    minWidth: 620,
+    minHeight: 560,
     titleBarStyle: 'hiddenInset',
     backgroundColor: '#111316',
     ...(process.platform === 'darwin' || !icon ? {} : { icon }),

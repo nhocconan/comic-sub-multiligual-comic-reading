@@ -6,11 +6,13 @@
   "description": "Manga Sub embedded comic reader and translation app",
   "main": "main.cjs",
   "scripts": {
-    "dev": "electron .",
-    "start": "electron .",
+    "build:icons": "python3 scripts/build-icons.py",
+    "build:ocr": "sh scripts/build-ocr-helper.sh",
+    "dev": "npm run build:ocr && electron .",
+    "start": "npm run build:ocr && electron .",
     "test": "node --test test/*.test.cjs",
-    "build": "electron-builder --dir",
-    "dist": "electron-builder"
+    "build": "npm run build:icons && npm run build:ocr && electron-builder --dir",
+    "dist": "npm run build:icons && npm run build:ocr && electron-builder"
   },
   "build": {
     "appId": "com.comicsub.reader",
@@ -23,6 +25,13 @@
       "app/**/*",
       "build/icon.png",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "bin",
+        "to": "bin",
+        "filter": ["manga-sub-ocr"]
+      }
     ],
     "mac": {
       "category": "public.app-category.entertainment",

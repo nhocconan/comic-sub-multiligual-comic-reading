@@ -585,31 +585,10 @@ private final class OnDeviceComicOCR {
         default: recognitionLanguage = sourceLanguage
         }
 
-        let fast = try await recognizePass(
-            cgImage,
-            width: width,
-            height: height,
-            recognitionLanguage: recognitionLanguage,
-            level: .fast,
-            usesLanguageCorrection: false,
-            minimumTextHeight: 0.008
-        )
         let regions: [BrokerRegion]
         if isCJK(sourceLanguage) {
-            // Comic lettering frequently makes the fast pass look confident even
-            // when it skipped an entire bubble. Keep the fast geometry but always
-            // union it with an accurate CJK pass for recall.
-            let accurate = try await recognizePass(
-                cgImage,
-                width: width,
-                height: height,
-                recognitionLanguage: recognitionLanguage,
-                level: .accurate,
-                usesLanguageCorrection: true,
-                minimumTextHeight: 0.004
-            )
-            regions = (fast + accurate).filter { isPlausible($0.source, sourceLanguage: sourceLanguage) }
-        } else if needsAccuratePass(fast, sourceLanguage: sourceLanguage) {
+            // One accurate pass is both faster than the old fast+accurate union
+            // and avoids duplicate line boxes before dialogue merging.
             regions = try await recognizePass(
                 cgImage,
                 width: width,
@@ -620,7 +599,28 @@ private final class OnDeviceComicOCR {
                 minimumTextHeight: 0.004
             ).filter { isPlausible($0.source, sourceLanguage: sourceLanguage) }
         } else {
-            regions = fast.filter { isPlausible($0.source, sourceLanguage: sourceLanguage) }
+            let fast = try await recognizePass(
+                cgImage,
+                width: width,
+                height: height,
+                recognitionLanguage: recognitionLanguage,
+                level: .fast,
+                usesLanguageCorrection: false,
+                minimumTextHeight: 0.008
+            )
+            if needsAccuratePass(fast, sourceLanguage: sourceLanguage) {
+            regions = try await recognizePass(
+                cgImage,
+                width: width,
+                height: height,
+                recognitionLanguage: recognitionLanguage,
+                level: .accurate,
+                usesLanguageCorrection: true,
+                minimumTextHeight: 0.004
+            ).filter { isPlausible($0.source, sourceLanguage: sourceLanguage) }
+            } else {
+                regions = fast.filter { isPlausible($0.source, sourceLanguage: sourceLanguage) }
+            }
         }
         return OnDeviceOCRPage(
             page: BrokerPage(width: width, height: height),
@@ -649,7 +649,7 @@ private final class OnDeviceComicOCR {
                     return
                 }
                 let observations = request.results as? [VNRecognizedTextObservation] ?? []
-                var regions = observations.compactMap { observation -> BrokerRegion? in
+                let regions = observations.compactMap { observation -> BrokerRegion? in
                     guard let candidate = observation.topCandidates(1).first else { return nil }
                     let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !text.isEmpty else { return nil }
@@ -1828,49 +1828,60 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             let client = try BrokerClient(endpoint: brokerEndpoint, token: settingsStore.loadToken(), deviceID: deviceID, discoveredBroker: discoveredBroker)
             activeBroker = client
             let usesManagedCloud = [.automatic, .managedCloud].contains(settings.route)
-            let glossary = try await latestSeriesGlossary(client: client, series: series)
+            let glossary = glossarySnapshots[series.id] ?? .empty
+            Task { [weak self] in
+                guard let self else { return }
+                _ = try? await self.latestSeriesGlossary(client: client, series: series)
+            }
             updateRouteStatus(usesManagedCloud
-                ? uiText("Selected images are sent to Managed Cloud after the batch is registered.", "Ảnh đã chọn sẽ gửi tới Managed Cloud sau khi batch được đăng ký.")
-                : uiText("Selected images are sent to the broker/private server after the batch is registered.", "Ảnh đã chọn sẽ gửi tới broker/server riêng sau khi batch được đăng ký."))
+                ? uiText("Images stay on this device. Only recognized text and coordinates are sent to Manga Sub Cloud.", "Ảnh nằm trên thiết bị. Chỉ chữ OCR và tọa độ được gửi tới Manga Sub Cloud.")
+                : uiText("Images stay on this device. Only recognized text and coordinates are sent to the private broker.", "Ảnh nằm trên thiết bị. Chỉ chữ OCR và tọa độ được gửi tới broker riêng."))
             try Task.checkCancellation()
+            var recognizedPages: [String: OnDeviceOCRPage] = [:]
+            for (offset, candidate) in selected.enumerated() {
+                try Task.checkCancellation()
+                guard navigationID == expectedNavigationID else { throw BrokerError.cancelled }
+                updateRouteStatus(uiText(
+                    "Reading text on device · page \(offset + 1)/\(selected.count)…",
+                    "Đang đọc chữ trên máy · trang \(offset + 1)/\(selected.count)…"
+                ))
+                let image = try await BoundedImageFetcher().fetch(
+                    candidate: candidate,
+                    pageURL: pageURL,
+                    store: webView.configuration.websiteDataStore
+                )
+                recognizedPages[candidate.id] = try await OnDeviceComicOCR().recognize(
+                    image,
+                    sourceLanguage: settings.sourceLanguage
+                )
+            }
             let snapshotID = "snapshot-\(UUID().uuidString)"
             let snapshot = makeSnapshot(snapshotID: snapshotID, candidates: selected, pageURL: pageURL)
             try await client.registerSnapshot(snapshot)
             try Task.checkCancellation()
-            let request = makeBatchRequest(snapshotID: snapshotID, candidates: selected, clientDevice: false, glossary: glossary)
+            let request = makeBatchRequest(
+                snapshotID: snapshotID,
+                candidates: selected,
+                clientDevice: false,
+                glossary: glossary,
+                clientOcr: recognizedPages
+            )
             let batch = try await client.createBatch(request, idempotencyKey: "ios-\(UUID().uuidString)")
             activeJobIDs = Set(batch.jobIds)
             guard batch.jobs.count == selected.count else { throw BrokerError.request(uiText("The broker returned an incomplete batch.", "Broker trả batch không đầy đủ.")) }
             let indexedJobs = Array(batch.jobs.enumerated())
             for windowStart in stride(from: 0, to: indexedJobs.count, by: 4) {
                 let window = Array(indexedJobs[windowStart..<min(windowStart + 4, indexedJobs.count)])
-                var acquired: [Int: AcquiredImage] = [:]
                 for (offset, job) in window {
                     try Task.checkCancellation()
                     guard navigationID == expectedNavigationID else { throw BrokerError.cancelled }
                     let candidate = selected[offset]
                     guard job.candidateId == candidate.id else { throw BrokerError.request(uiText("The broker matched the wrong snapshot image.", "Broker ghép sai ảnh trong snapshot.")) }
-                    updateRouteStatus(uiText(
-                        "Preparing page \(offset + 1)/\(selected.count)…",
-                        "Đang chuẩn bị trang \(offset + 1)/\(selected.count)…"
-                    ))
-                    acquired[offset] = try await BoundedImageFetcher().fetch(
-                        candidate: candidate,
-                        pageURL: pageURL,
-                        store: webView.configuration.websiteDataStore
-                    )
                 }
                 updateRouteStatus(uiText(
-                    "Reading and translating \(window.count) page\(window.count == 1 ? "" : "s") together…",
-                    "Đang OCR và dịch chung \(window.count) trang…"
+                    "Translating \(window.count) page\(window.count == 1 ? "" : "s") together…",
+                    "Đang dịch chung \(window.count) trang…"
                 ))
-                try await withThrowingTaskGroup(of: Void.self) { group in
-                    for (offset, job) in window {
-                        guard let image = acquired[offset] else { continue }
-                        group.addTask { try await client.upload(jobID: job.jobId, image: image) }
-                    }
-                    try await group.waitForAll()
-                }
                 try await client.flushBatch(batch.batchId)
                 for (offset, job) in window {
                     try Task.checkCancellation()
@@ -2204,7 +2215,13 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         ]
     }
 
-    private func makeBatchRequest(snapshotID: String, candidates: [WebCandidate], clientDevice: Bool, glossary: GlossarySnapshot) -> [String: Any] {
+    private func makeBatchRequest(
+        snapshotID: String,
+        candidates: [WebCandidate],
+        clientDevice: Bool,
+        glossary: GlossarySnapshot,
+        clientOcr: [String: OnDeviceOCRPage] = [:]
+    ) -> [String: Any] {
         let candidates = canonicalCandidates(candidates)
         let request: [String: Any]
         if clientDevice {
@@ -2213,15 +2230,38 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             let locus = [.automatic, .managedCloud].contains(settings.route) ? "managed" : "private-server"
             request = ["locus": locus, "profile": "balanced", "provider": "gemini", "model": "gemini-3.6-flash", "allowedFallbacks": []]
         }
-        return [
+        var payload: [String: Any] = [
             "snapshotId": snapshotID, "candidateIds": candidates.map(\.id), "requestedExecution": request,
-            "pipeline": ["translationMode": clientDevice ? "client-device" : "server", "ocrVersion": "paddle-ocr-vl-1.6", "layoutVersion": "comic-text-bubble-detector", "renderVersion": "source-overlay-v1", "promptVersion": "zh-comic-vi-v1"],
+            "pipeline": ["translationMode": clientDevice ? "client-device" : (clientOcr.isEmpty ? "server" : "client-ocr"), "ocrVersion": clientOcr.isEmpty ? "paddle-ocr-vl-1.6" : "apple-vision", "layoutVersion": clientOcr.isEmpty ? "comic-text-bubble-detector" : "client-geometry", "renderVersion": "source-overlay-v1", "promptVersion": "zh-comic-vi-v1"],
             "language": ["source": settings.sourceLanguage, "target": settings.targetLanguage],
             "translationStyle": "natural-dialogue",
             "glossarySnapshot": ["id": glossary.id, "version": glossary.version, "hash": glossary.hash],
             "privacyPolicyVersion": settings.privateSession ? "private-v1" : "reader-v1",
             "budget": ["currency": "USD", "maxMicros": [.automatic, .managedCloud].contains(settings.route) ? 500_000 : 0],
         ]
+        if !clientOcr.isEmpty {
+            var pages: [String: Any] = [:]
+            for candidate in candidates {
+                guard let recognized = clientOcr[candidate.id] else { continue }
+                pages[candidate.id] = [
+                    "page": ["width": recognized.page.width, "height": recognized.page.height],
+                    "regions": recognized.regions.map { region in
+                        [
+                            "id": region.id,
+                            "x": region.x,
+                            "y": region.y,
+                            "width": region.width,
+                            "height": region.height,
+                            "rotation": region.rotation ?? 0,
+                            "source": region.source,
+                            "confidence": region.confidence ?? 0,
+                        ] as [String: Any]
+                    },
+                ] as [String: Any]
+            }
+            payload["clientOcr"] = pages
+        }
+        return payload
     }
 
     private func canonicalCandidates(_ values: [WebCandidate]) -> [WebCandidate] {

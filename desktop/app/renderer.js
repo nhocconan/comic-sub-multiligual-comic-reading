@@ -7,6 +7,10 @@ let activeTab = 'reader'
 let latestReceipt = null
 let toastTimer
 let pendingTranslationCommand = null
+const panelPreferences = {
+  sidebar: localStorage.getItem('mangaSub.panel.sidebar') || 'auto',
+  inspector: localStorage.getItem('mangaSub.panel.inspector') || 'hidden',
+}
 
 const routeNames = { ask: 'Chưa chọn route', local: 'Trên máy này', paired: 'Máy tính của tôi', managed: 'Manga Sub Cloud', byo: 'Máy tính + external AI' }
 const languages = { 'vi-VN': 'Vietnamese', 'en-US': 'English', 'fr-FR': 'French' }
@@ -19,6 +23,31 @@ function toast(message) {
 
 function routeNeedsChoice() { return !state.settings.route || state.settings.route === 'ask' }
 function readerRouteText() { return `${state.settings.targetLanguage.startsWith('vi') ? 'VI' : state.settings.targetLanguage.slice(0, 2).toUpperCase()} · ${routeNames[state.settings.route] || routeNames.ask}` }
+
+function panelIsHidden(name) {
+  const preference = panelPreferences[name]
+  if (preference === 'hidden') return true
+  if (preference === 'shown') return false
+  return name === 'sidebar' ? window.innerWidth < 1060 : window.innerWidth < 1400
+}
+
+function applyPanelLayout() {
+  const sidebarHidden = panelIsHidden('sidebar')
+  const inspectorHidden = panelIsHidden('inspector')
+  document.body.classList.toggle('sidebar-collapsed', sidebarHidden)
+  document.body.classList.toggle('inspector-collapsed', inspectorHidden)
+  $('#toggle-sidebar').setAttribute('aria-pressed', String(!sidebarHidden))
+  $('#toggle-sidebar').setAttribute('aria-label', sidebarHidden ? 'Hiện thanh công cụ' : 'Ẩn thanh công cụ')
+  $('#toggle-inspector').setAttribute('aria-pressed', String(!inspectorHidden))
+  $('#toggle-inspector').setAttribute('aria-label', inspectorHidden ? 'Hiện thông tin phiên' : 'Ẩn thông tin phiên')
+  requestAnimationFrame(syncReaderBounds)
+}
+
+function togglePanel(name) {
+  panelPreferences[name] = panelIsHidden(name) ? 'shown' : 'hidden'
+  localStorage.setItem(`mangaSub.panel.${name}`, panelPreferences[name])
+  applyPanelLayout()
+}
 
 function renderState() {
   $('#private-toggle').classList.toggle('enabled', state.privateSession)
@@ -112,9 +141,29 @@ function updateReaderStatus(payload) {
     $('#queue-status').innerHTML = `<span class="pulse"></span><span>Đang dịch ${payload.done + 1}/${payload.total} · ${payload.queued} đang chờ</span>`
     $('#queue-value').textContent = `${payload.done}/${payload.total}`
   }
+  if (payload.type === 'broker-progress') {
+    const labels = {
+      OCR: 'Đang đọc chữ trên máy · ảnh không được tải lên cloud',
+      QUEUED: 'Đã đọc chữ · đang xếp hàng dịch',
+      TRANSLATING: 'Đang dịch text theo lô',
+      PROCESSING: 'Đang dịch text theo lô',
+      RENDERING: 'Đang chuẩn bị lớp chữ trên máy',
+    }
+    const label = labels[payload.state] || `Đang xử lý · ${payload.state || 'working'}`
+    $('#queue-status').innerHTML = `<span class="pulse"></span><span>${label}</span>`
+    $('#queue-value').textContent = payload.state === 'OCR' ? 'Local OCR' : 'Text only'
+  }
   if (payload.type === 'job-complete') {
     $('#queue-status').innerHTML = '<span class="pulse done"></span><span>Bản dịch đã sẵn sàng · chạm Original để so sánh</span>'
     $('#queue-value').textContent = 'Complete'
+  }
+  if (payload.type === 'broker-failure') {
+    $('#queue-status').innerHTML = `<span class="pulse"></span><span>${escapeHtml(payload.message || 'Dịch thất bại; ảnh gốc vẫn giữ nguyên.')}</span>`
+    $('#queue-value').textContent = 'Failed'
+  }
+  if (payload.type === 'broker-cancelled') {
+    $('#queue-status').innerHTML = '<span class="pulse"></span><span>Đã dừng queue; ảnh gốc vẫn giữ nguyên.</span>'
+    $('#queue-value').textContent = 'Stopped'
   }
 }
 
@@ -124,6 +173,8 @@ function bind() {
     try { await window.comicSub.navigate(raw); setTab('reader'); toast('Đang mở trang trong Manga Sub…') } catch (error) { toast(error.message || 'URL không hợp lệ.') }
   })
   $('#back-button').addEventListener('click', () => window.comicSub.readerCommand({ type: 'back' }))
+  $('#toggle-sidebar').addEventListener('click', () => togglePanel('sidebar'))
+  $('#toggle-inspector').addEventListener('click', () => togglePanel('inspector'))
   $$('.nav-item').forEach((button) => button.addEventListener('click', () => setTab(button.dataset.tab)))
   $('#translate-current').addEventListener('click', () => ensureRoute('translate-current'))
   $('#translate-all').addEventListener('click', () => ensureRoute('open-all-confirm'))
@@ -143,12 +194,16 @@ function bind() {
   $('#add-term-form').addEventListener('submit', async (event) => { event.preventDefault(); state.glossary = await window.comicSub.addTerm($('#term-input').value); $('#term-input').value = ''; renderGlossary() })
   $('#library-list').addEventListener('click', async (event) => { const resumeId = event.target.dataset.resume; const deleteId = event.target.dataset.delete; if (resumeId) { const item = state.history.find((entry) => entry.id === resumeId); await window.comicSub.resume(item); setTab('reader') } if (deleteId) { state.history = await window.comicSub.clearHistory(deleteId); renderLibrary() } })
   $$('#migration-banner [data-choice]').forEach((button) => button.addEventListener('click', async () => { state = await window.comicSub.chooseModelMigration(button.dataset.choice); renderState(); toast('Thiết lập model đã được cập nhật.') }))
-  window.addEventListener('resize', syncReaderBounds)
+  window.addEventListener('resize', applyPanelLayout)
+  document.querySelectorAll('.sidebar,.inspector,.reader-frame').forEach((element) => {
+    element.addEventListener('transitionend', syncReaderBounds)
+  })
+  new ResizeObserver(() => syncReaderBounds()).observe($('#reader-frame'))
 }
 
 async function init() {
   state = await window.comicSub.getState()
-  bind(); renderState(); setTab('reader'); requestAnimationFrame(syncReaderBounds)
+  bind(); renderState(); applyPanelLayout(); setTab('reader'); requestAnimationFrame(syncReaderBounds)
   window.comicSub.on('reader:status', updateReaderStatus)
   window.comicSub.on('app:navigation', ({ url }) => { $('#address-input').value = url })
   window.comicSub.on('app:history', (history) => { state.history = history; renderLibrary() })
