@@ -1,6 +1,7 @@
 package com.tienle.comicsub.reader
 
 import androidx.lifecycle.LifecycleOwner
+import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.common.model.DownloadConditions
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
@@ -28,22 +29,21 @@ class OnDeviceTranslator(private val lifecycleOwner: LifecycleOwner) {
         translator.downloadModelIfNeeded(DownloadConditions.Builder().requireWifi().build())
             .addOnFailureListener { error -> completion(Result.failure(error)) }
             .addOnSuccessListener {
-                val translated = ArrayList<OverlayRegion>(regions.size)
-                fun translateAt(index: Int) {
-                    if (index >= regions.size) {
-                        completion(Result.success(translated))
-                        return
-                    }
-                    val region = regions[index]
-                    onStatus("Đang dịch trên thiết bị ${index + 1}/${regions.size}…")
-                    translator.translate(region.source)
-                        .addOnSuccessListener { text ->
-                            translated += region.copy(translation = text)
-                            translateAt(index + 1)
-                        }
-                        .addOnFailureListener { error -> completion(Result.failure(error)) }
+                if (regions.isEmpty()) {
+                    completion(Result.success(emptyList()))
+                    return@addOnSuccessListener
                 }
-                translateAt(0)
+                onStatus("Đang dịch ${regions.size} vùng chữ song song trên thiết bị…")
+                val tasks = regions.map { translator.translate(it.source) }
+                Tasks.whenAllSuccess<String>(tasks)
+                    .addOnSuccessListener { translations ->
+                        completion(Result.success(
+                            regions.zip(translations) { region, text ->
+                                region.copy(translation = text)
+                            },
+                        ))
+                    }
+                    .addOnFailureListener { error -> completion(Result.failure(error)) }
             }
     }
 

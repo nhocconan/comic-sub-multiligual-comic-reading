@@ -22,6 +22,7 @@ data class ComicCandidate(
     val top: Double,
     val bottom: Double,
     val visible: Boolean,
+    val visibleHeight: Double,
 ) {
     companion object {
         fun listFromJson(value: String): List<ComicCandidate> {
@@ -40,6 +41,7 @@ data class ComicCandidate(
                     top = item.optDouble("top"),
                     bottom = item.optDouble("bottom"),
                     visible = item.optBoolean("visible"),
+                    visibleHeight = item.optDouble("visibleHeight"),
                 )
             }
         }

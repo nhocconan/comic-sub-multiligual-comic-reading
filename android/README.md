@@ -19,7 +19,8 @@ The default broker endpoint is `http://10.0.2.2:4100` for the Android emulator.
 On a physical phone, open **Settings → Translation route** and use an HTTPS
 endpoint or a private-LAN address. The app refuses public cleartext endpoints.
 
-“On device” is deliberately labelled **translation on device · OCR on server**:
-the app never implies that the whole image pipeline is local when only ML Kit
-translation runs locally. ML Kit downloads the selected language model on Wi-Fi
-before first use.
+OCR runs locally with bundled ML Kit Text Recognition v2 for Chinese. The
+on-device route also translates locally; the private-server and Manga Sub Cloud
+routes send only recognized text plus source-image coordinates. Comic pixels,
+chapter URLs, cookies, and reading history stay on the device. ML Kit downloads
+the selected translation language model on Wi-Fi before first use.

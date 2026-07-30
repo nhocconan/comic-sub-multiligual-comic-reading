@@ -14,7 +14,7 @@ import java.time.Instant
 import java.util.UUID
 
 class BrokerClient {
-    data class SourceAsset(val bytes: ByteArray, val mime: String, val sha256: String)
+    data class SourceAsset(val bytes: ByteArray, val mime: String)
     data class CreatedJob(val batchId: String, val jobId: String)
     data class SeriesBootstrap(val seriesId: String, val glossarySnapshot: JSONObject)
 
@@ -61,9 +61,7 @@ class BrokerClient {
             val mime = connection.contentType?.substringBefore(';')?.lowercase()
                 ?.takeIf { it in setOf("image/jpeg", "image/png", "image/webp", "image/avif") }
                 ?: sniffMime(bytes)
-            val hash = MessageDigest.getInstance("SHA-256").digest(bytes)
-                .joinToString("") { "%02x".format(it) }
-            return SourceAsset(bytes, mime, hash)
+            return SourceAsset(bytes, mime)
         } finally {
             connection.disconnect()
         }
@@ -75,6 +73,7 @@ class BrokerClient {
         documentUrl: String,
         documentTitle: String,
         glossary: JSONObject,
+        clientOcr: OnDeviceOcrPage,
     ): CreatedJob {
         val batchKey = UUID.randomUUID().toString()
         val snapshotId = UUID.randomUUID().toString()
@@ -96,9 +95,9 @@ class BrokerClient {
                     .put("y", candidate.top)
                     .put("width", candidate.width.coerceAtLeast(1))
                     .put("height", candidate.height.coerceAtLeast(1)))
-                .put("intrinsicWidth", candidate.width.coerceAtLeast(1))
-                .put("intrinsicHeight", candidate.height.coerceAtLeast(1))
-                .put("acquisitionCapabilities", JSONArray().put("broker-fetch"))))
+                .put("intrinsicWidth", clientOcr.width.coerceAtLeast(1))
+                .put("intrinsicHeight", clientOcr.height.coerceAtLeast(1))
+                .put("acquisitionCapabilities", JSONArray().put("source-blob"))))
         jsonRequest(
             endpoint = settings.endpoint,
             path = "/v1/snapshots",
@@ -125,15 +124,31 @@ class BrokerClient {
                 .put("model", model)
                 .put("allowedFallbacks", JSONArray()))
             .put("pipeline", JSONObject()
-                .put("translationMode", if (settings.route == "device") "client-device" else "server")
-                .put("ocrVersion", "koharu-paddleocr-vl")
-                .put("layoutVersion", "comic-sub-1")
-                .put("renderVersion", "overlay-1")
+                .put("translationMode", "client-ocr")
+                .put("ocrVersion", "mlkit-text-recognition-v2-chinese")
+                .put("layoutVersion", "client-geometry")
+                .put("renderVersion", "source-overlay-v1")
                 .put("promptVersion", "series-intelligence-1"))
             .put("language", JSONObject().put("source", "zh-Hans").put("target", settings.targetLanguage))
             .put("glossarySnapshot", glossary)
             .put("privacyPolicyVersion", "2026-07-30")
             .put("budget", JSONObject().put("currency", "USD").put("maxMicros", 500_000))
+            .put("clientOcr", JSONObject().put(candidate.id, JSONObject()
+                .put("page", JSONObject()
+                    .put("width", clientOcr.width)
+                    .put("height", clientOcr.height))
+                .put("regions", JSONArray().apply {
+                    clientOcr.regions.forEach { region ->
+                        put(JSONObject()
+                            .put("id", region.id)
+                            .put("x", region.x)
+                            .put("y", region.y)
+                            .put("width", region.width)
+                            .put("height", region.height)
+                            .put("rotation", 0)
+                            .put("source", region.source))
+                    }
+                })))
         val response = jsonRequest(
             endpoint = settings.endpoint,
             path = "/v1/job-batches",
@@ -210,21 +225,6 @@ class BrokerClient {
         )
         return response.optJSONObject("glossarySnapshot")
             ?: JSONObject().put("id", seriesId).put("version", 0).put("hash", "0".repeat(64))
-    }
-
-    fun uploadAsset(settings: ReaderSettings, jobId: String, asset: SourceAsset) {
-        jsonRequest(
-            endpoint = settings.endpoint,
-            path = "/v1/jobs/${pathSegment(jobId)}/asset",
-            method = "PUT",
-            authKey = settings.authKey,
-            headers = mapOf(
-                "x-content-sha256" to asset.sha256,
-                "Idempotency-Key" to "asset-$jobId-${asset.sha256.take(16)}",
-            ),
-            body = asset.bytes,
-            contentType = asset.mime,
-        )
     }
 
     fun awaitReceipt(settings: ReaderSettings, created: CreatedJob): JobReceipt {

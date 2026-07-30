@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val broker = BrokerClient()
+    private val deviceOcr = OnDeviceOcr()
     private lateinit var deviceTranslator: OnDeviceTranslator
     private val stopAfterCurrent = AtomicBoolean(false)
     private var activeJobId: String? = null
@@ -349,8 +350,7 @@ class MainActivity : ComponentActivity() {
 
     private fun translateCurrent() {
         discover { candidates ->
-            val current = candidates.filter { it.visible }.minByOrNull { abs((it.top + it.bottom) / 2 - webView.height * 0.42) }
-                ?: candidates.firstOrNull()
+            val current = ReaderPolicy.currentCandidate(candidates)
             if (current == null) {
                 statusText("Không tìm thấy ảnh truyện trong trang.")
                 return@discover
@@ -387,9 +387,9 @@ class MainActivity : ComponentActivity() {
             return
         }
         val routes = arrayOf(
-            "Riêng tư trên thiết bị — OCR qua server, dịch bằng ML Kit",
-            "Server riêng — ảnh và OCR đi tới server đã cấu hình",
-            "Comic Sub Cloud — ảnh/OCR đi qua endpoint cloud",
+            "Riêng tư trên thiết bị — OCR và dịch bằng ML Kit",
+            "Server riêng — chỉ gửi chữ OCR và tọa độ",
+            "Manga Sub Cloud — chỉ gửi chữ OCR và tọa độ",
         )
         AlertDialog.Builder(this)
             .setTitle("Cách dịch trang này")
@@ -422,7 +422,8 @@ class MainActivity : ComponentActivity() {
         translateButton.isEnabled = false
         worker.execute {
             try {
-                var series = runCatching {
+                val deviceOnly = settings.route == "device"
+                var series = if (deviceOnly) null else runCatching {
                     broker.bootstrapSeries(settings, documentTitle, documentUrl, emptyList())
                 }.getOrNull()
                 var glossary = series?.glossarySnapshot ?: JSONObject()
@@ -441,16 +442,32 @@ class MainActivity : ComponentActivity() {
                         statusText("Đang lấy ảnh ${position + 1}/${candidates.size}…", busy = true)
                     }
                     val asset = broker.downloadCandidate(candidate, documentUrl)
-                    mainHandler.post { statusText("Đang tạo job bất biến ${position + 1}/${candidates.size}…", busy = true) }
-                    val created = broker.createJob(candidate, settings, documentUrl, documentTitle, glossary)
-                    activeJobId = created.jobId
-                    broker.uploadAsset(settings, created.jobId, asset)
-                    mainHandler.post { statusText("Đang OCR và dịch ${position + 1}/${candidates.size}…", busy = true) }
-                    var receipt = broker.awaitReceipt(settings, created)
-                    if (settings.route == "device") {
-                        val sourceRegions = receipt.sourceRegions.ifEmpty { receipt.regions }
-                        if (sourceRegions.isEmpty()) throw IllegalStateException("OCR không trả về vùng chữ để dịch trên thiết bị.")
-                        receipt = receipt.copy(regions = translateOnDeviceBlocking(sourceRegions))
+                    mainHandler.post { statusText("Đang OCR local ${position + 1}/${candidates.size}…", busy = true) }
+                    val recognized = deviceOcr.recognizeBlocking(asset)
+                    var receipt = if (deviceOnly) {
+                        JobReceipt(
+                            jobId = "device-${java.util.UUID.randomUUID()}",
+                            batchId = "device",
+                            status = "SETTLED",
+                            requestedModel = "mlkit-translation",
+                            resolvedModel = "mlkit-translation",
+                            locus = "device",
+                            diagnosticId = "device-${java.util.UUID.randomUUID()}",
+                            regions = translateOnDeviceBlocking(recognized.regions),
+                            sourceRegions = recognized.regions,
+                        )
+                    } else {
+                        mainHandler.post { statusText("Đang gửi chữ OCR ${position + 1}/${candidates.size}…", busy = true) }
+                        val created = broker.createJob(
+                            candidate,
+                            settings,
+                            documentUrl,
+                            documentTitle,
+                            glossary,
+                            recognized,
+                        )
+                        activeJobId = created.jobId
+                        broker.awaitReceipt(settings, created)
                     }
                     val observedAliases = (receipt.sourceRegions + receipt.regions)
                         .map { it.source }
@@ -813,9 +830,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun routeLabel(route: String): String = when (route) {
-        "device" -> "Dịch trên thiết bị · OCR trên server"
-        "paired" -> "Server riêng"
-        "managed" -> "Managed Cloud"
+        "device" -> "OCR + dịch trên thiết bị"
+        "paired" -> "Server riêng · OCR local"
+        "managed" -> "Manga Sub Cloud · OCR local"
         else -> "Hỏi trước khi gửi"
     }
 
@@ -840,6 +857,7 @@ class MainActivity : ComponentActivity() {
         }
         webView.stopLoading()
         webView.destroy()
+        deviceOcr.close()
         worker.shutdownNow()
         super.onDestroy()
     }

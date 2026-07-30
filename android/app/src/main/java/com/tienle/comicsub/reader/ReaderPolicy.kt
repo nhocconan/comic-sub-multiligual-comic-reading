@@ -1,6 +1,7 @@
 package com.tienle.comicsub.reader
 
 import java.net.URI
+import kotlin.math.abs
 
 object ReaderPolicy {
     const val DEFAULT_MODEL = "gemini-3.6-flash"
@@ -15,6 +16,24 @@ object ReaderPolicy {
     fun toolbarAddressWidthDp(screenWidthDp: Int): Int =
         screenWidthDp - (TOOLBAR_ACTION_WIDTH_DP * TOOLBAR_ACTION_COUNT) -
             TOOLBAR_HORIZONTAL_CHROME_DP
+
+    fun currentCandidate(
+        candidates: List<ComicCandidate>,
+    ): ComicCandidate? {
+        val visibleCandidates = candidates.filter { it.visibleHeight > 0 }
+        val targetY = visibleCandidates.maxOfOrNull { it.bottom.coerceAtMost(it.top + it.visibleHeight) }
+            ?.times(0.42)
+            ?: 0.0
+        return candidates
+            .filter { it.visibleHeight > 0 }
+            .maxWithOrNull(
+                compareBy<ComicCandidate> { it.visibleHeight }
+                    .thenBy { candidate ->
+                        -abs(((candidate.top + candidate.bottom) / 2) - targetY)
+                    },
+            )
+            ?: candidates.firstOrNull()
+    }
 
     fun normalizedWebUrl(value: String): String? {
         val trimmed = value.trim()

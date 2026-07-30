@@ -33,4 +33,21 @@ class ReaderPolicyTest {
         assertTrue(ReaderPolicy.toolbarAddressWidthDp(360) >= 110)
         assertEquals(165, ReaderPolicy.toolbarAddressWidthDp(411))
     }
+
+    @Test
+    fun translateCurrentChoosesTheImageWithTheLargestVisibleArea() {
+        val dominant = ComicCandidate(
+            "first", "https://example.com/1.jpg", 0, 1000, 1600,
+            95.0, 678.0, true, 583.0,
+        )
+        val next = ComicCandidate(
+            "second", "https://example.com/2.jpg", 1, 1000, 1600,
+            678.0, 1_365.0, true, 106.0,
+        )
+
+        assertEquals(
+            dominant,
+            ReaderPolicy.currentCandidate(listOf(dominant, next)),
+        )
+    }
 }

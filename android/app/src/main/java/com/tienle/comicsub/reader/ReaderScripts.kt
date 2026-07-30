@@ -44,7 +44,8 @@ object ReaderScripts {
               height: img.naturalHeight || height,
               top: rect.top,
               bottom: rect.bottom,
-              visible: rect.bottom > 0 && rect.top < innerHeight
+              visible: rect.bottom > 0 && rect.top < innerHeight,
+              visibleHeight: Math.max(0, Math.min(rect.bottom, innerHeight) - Math.max(rect.top, 0))
             });
           });
           return JSON.stringify(all.slice(0, 200));
@@ -106,14 +107,16 @@ object ReaderScripts {
         return """
             (() => {
               const candidateId = $safeId;
-              const regions = $regionsJson;
+              const regions = ($regionsJson).filter(region =>
+                region && String(region.translation || '').trim().length > 0
+              );
               const img = document.querySelector(`img[data-comic-sub-id="${'$'}{CSS.escape(candidateId)}"]`);
               if (!img) return false;
               let root = document.getElementById('comic-sub-native-overlays');
               if (!root) {
                 root = document.createElement('div');
                 root.id = 'comic-sub-native-overlays';
-                root.setAttribute('aria-label', 'Bản dịch Comic Sub');
+                root.setAttribute('aria-label', 'Manga Sub translations');
                 root.style.cssText = 'position:fixed;inset:0;z-index:2147483646;pointer-events:none;font-family:-apple-system,BlinkMacSystemFont,Roboto,sans-serif;';
                 document.documentElement.appendChild(root);
               }
@@ -125,21 +128,98 @@ object ReaderScripts {
                 root.appendChild(layer);
               }
               layer.replaceChildren();
-              const render = () => {
-                const rect = img.getBoundingClientRect();
-                layer.style.left = `${'$'}{rect.left}px`;
-                layer.style.top = `${'$'}{rect.top}px`;
-                layer.style.width = `${'$'}{rect.width}px`;
-                layer.style.height = `${'$'}{rect.height}px`;
-                layer.style.display = rect.bottom < 0 || rect.top > innerHeight ? 'none' : 'block';
-                const sx = rect.width / Math.max(1, img.naturalWidth || rect.width);
-                const sy = rect.height / Math.max(1, img.naturalHeight || rect.height);
-                [...layer.children].forEach((box, i) => {
-                  const region = regions[i];
-                  box.style.left = `${'$'}{region.x*sx}px`;
-                  box.style.top = `${'$'}{region.y*sy}px`;
-                  box.style.width = `${'$'}{Math.max(32,region.width*sx)}px`;
-                  box.style.minHeight = `${'$'}{Math.max(24,region.height*sy)}px`;
+              layer.__comicSubRegions = regions;
+              const fitText = (box, width, height) => {
+                let size = Math.min(
+                  box.__comicSubMaxFont || 16,
+                  Math.max(8, height * .38),
+                );
+                box.style.fontSize = `${'$'}{size}px`;
+                while (size > 7 && (box.scrollWidth > box.clientWidth || box.scrollHeight > box.clientHeight)) {
+                  size -= .5;
+                  box.style.fontSize = `${'$'}{size}px`;
+                }
+              };
+              window.__comicSubRenderLayer = (targetLayer, source, targetRegions) => {
+                const elementRect = source.getBoundingClientRect();
+                const sourceWidth = Math.max(1, source.naturalWidth || elementRect.width);
+                const sourceHeight = Math.max(1, source.naturalHeight || elementRect.height);
+                const computed = getComputedStyle(source);
+                const fit = computed.objectFit;
+                let contentWidth = elementRect.width;
+                let contentHeight = elementRect.height;
+                let offsetX = 0;
+                let offsetY = 0;
+                if (fit === 'contain' || fit === 'scale-down') {
+                  const scale = Math.min(elementRect.width / sourceWidth, elementRect.height / sourceHeight);
+                  contentWidth = sourceWidth * scale;
+                  contentHeight = sourceHeight * scale;
+                  offsetX = (elementRect.width - contentWidth) / 2;
+                  offsetY = (elementRect.height - contentHeight) / 2;
+                }
+                targetLayer.style.left = `${'$'}{elementRect.left + offsetX}px`;
+                targetLayer.style.top = `${'$'}{elementRect.top + offsetY}px`;
+                targetLayer.style.width = `${'$'}{contentWidth}px`;
+                targetLayer.style.height = `${'$'}{contentHeight}px`;
+                targetLayer.style.display =
+                  elementRect.bottom < 0 || elementRect.top > innerHeight ||
+                  elementRect.right < 0 || elementRect.left > innerWidth ? 'none' : 'block';
+                const sx = contentWidth / sourceWidth;
+                const sy = contentHeight / sourceHeight;
+                [...targetLayer.children].forEach((box, index) => {
+                  const region = targetRegions[index];
+                  if (!region) {
+                    box.style.display = 'none';
+                    return;
+                  }
+                  const sourceX = Math.max(0, Math.min(sourceWidth, Number(region.x) || 0));
+                  const sourceY = Math.max(0, Math.min(sourceHeight, Number(region.y) || 0));
+                  const sourceRegionWidth = Math.max(
+                    1,
+                    Math.min(sourceWidth - sourceX, Number(region.width) || 1),
+                  );
+                  const sourceRegionHeight = Math.max(
+                    1,
+                    Math.min(sourceHeight - sourceY, Number(region.height) || 1),
+                  );
+                  const sourceLength = Math.max(1, String(region.source || '').replace(/\s/g, '').length);
+                  const targetLength = Math.max(1, String(region.translation || '').replace(/\s/g, '').length);
+                  const extraLines = Math.min(
+                    3,
+                    Math.max(1, Math.ceil(targetLength / Math.max(1, sourceLength * 1.55))),
+                  );
+                  const widthGrowth = targetLength > sourceLength * 1.4 ? 1.4 : 1.12;
+                  const grownSourceWidth = Math.min(sourceWidth, sourceRegionWidth * widthGrowth);
+                  const maxSourceHeight = Math.min(sourceHeight, sourceRegionHeight * extraLines);
+                  const grownSourceX = Math.max(
+                    0,
+                    Math.min(sourceWidth - grownSourceWidth, sourceX - (grownSourceWidth - sourceRegionWidth) / 2),
+                  );
+                  const width = Math.max(1, grownSourceWidth * sx);
+                  const baseHeight = Math.max(1, sourceRegionHeight * sy);
+                  const maxHeight = Math.max(baseHeight, maxSourceHeight * sy);
+                  box.style.display = width < 5 || baseHeight < 5 ? 'none' : 'block';
+                  box.style.left = `${'$'}{grownSourceX * sx}px`;
+                  box.style.width = `${'$'}{width}px`;
+                  box.style.height = 'auto';
+                  box.style.padding = `${'$'}{Math.min(4, Math.max(1, baseHeight * .06))}px`;
+                  const sourceLineCount = Math.max(1, String(region.source || '').split(/\n+/).length);
+                  const sourceLineHeight = sourceRegionHeight * sy / sourceLineCount;
+                  box.__comicSubMaxFont = Math.min(14, Math.max(8, sourceLineHeight * .9));
+                  box.style.fontSize = `${'$'}{box.__comicSubMaxFont}px`;
+                  const measuredHeight = box.scrollHeight;
+                  const height = Math.min(maxHeight, Math.max(baseHeight, measuredHeight));
+                  const grownSourceY = Math.max(
+                    0,
+                    Math.min(
+                      sourceHeight - height / sy,
+                      sourceY - ((height - baseHeight) / sy) * .15,
+                    ),
+                  );
+                  box.style.top = `${'$'}{grownSourceY * sy}px`;
+                  box.style.height = `${'$'}{height}px`;
+                  box.style.display = 'flex';
+                  fitText(box, width, height);
                 });
               };
               regions.forEach((region) => {
@@ -147,27 +227,27 @@ object ReaderScripts {
                 box.setAttribute('role','note');
                 box.setAttribute('aria-label', `${'$'}{region.source || ''}. Bản dịch: ${'$'}{region.translation || ''}`);
                 box.textContent = region.translation || '';
-                box.style.cssText = 'position:absolute;box-sizing:border-box;padding:3px 5px;display:flex;align-items:center;justify-content:center;text-align:center;background:rgba(17,17,15,.95);color:#fff7e5;border:1px solid rgba(230,184,92,.7);border-radius:5px;font-weight:650;font-size:clamp(11px,2.8vw,18px);line-height:1.16;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.45);';
+                box.style.cssText = 'position:absolute;box-sizing:border-box;display:flex;align-items:center;justify-content:center;text-align:center;background:rgba(255,253,245,.96);color:#171714;border:1px solid rgba(79,66,38,.24);border-radius:5px;font-weight:650;line-height:1.12;white-space:normal;overflow-wrap:break-word;word-break:normal;overflow:hidden;box-shadow:0 1px 5px rgba(0,0,0,.22);';
                 layer.appendChild(box);
               });
               if (!window.__comicSubOverlayBound) {
                 window.__comicSubOverlayBound = true;
+                let frame = 0;
                 const rerender = () => {
+                  if (frame) return;
+                  frame = requestAnimationFrame(() => {
+                    frame = 0;
                   document.querySelectorAll('#comic-sub-native-overlays [data-layer-id]').forEach((item) => {
                     const source = document.querySelector(`img[data-comic-sub-id="${'$'}{CSS.escape(item.dataset.layerId)}"]`);
                     if (!source) { item.remove(); return; }
-                    const rect = source.getBoundingClientRect();
-                    item.style.left = `${'$'}{rect.left}px`;
-                    item.style.top = `${'$'}{rect.top}px`;
-                    item.style.width = `${'$'}{rect.width}px`;
-                    item.style.height = `${'$'}{rect.height}px`;
-                    item.style.display = rect.bottom < 0 || rect.top > innerHeight ? 'none' : 'block';
+                    window.__comicSubRenderLayer?.(item, source, item.__comicSubRegions || []);
+                  });
                   });
                 };
                 addEventListener('scroll', rerender, {passive:true});
                 addEventListener('resize', rerender, {passive:true});
               }
-              render();
+              window.__comicSubRenderLayer(layer, img, regions);
               return true;
             })()
         """.trimIndent()
