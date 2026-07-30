@@ -1434,7 +1434,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private func configureTranslationButton() {
         translateButton.translatesAutoresizingMaskIntoConstraints = false
         translateButton.configuration = .filled()
-        translateButton.configuration?.image = UIImage(systemName: "sparkles")
+        translateButton.configuration?.image = UIImage(systemName: "character.bubble.fill")
         translateButton.configuration?.imagePadding = 7
         translateButton.configuration?.cornerStyle = .capsule
         translateButton.addTarget(self, action: #selector(showTranslateMenu), for: .touchUpInside)
@@ -1487,7 +1487,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         reloadButton.accessibilityLabel = uiText("Reload", "Tải lại")
         shareButton.accessibilityLabel = uiText("Share", "Chia sẻ")
         settingsButton.accessibilityLabel = uiText("Settings", "Cài đặt")
-        translateButton.configuration?.title = uiText("Translate Current", "Dịch phần đang đọc")
+        translateButton.configuration?.title = uiText("Translate", "Dịch")
         translateButton.accessibilityHint = uiText(
             "Choose the visible section or all loaded images.",
             "Chọn dịch phần đang xem hoặc toàn bộ ảnh đã tải"
