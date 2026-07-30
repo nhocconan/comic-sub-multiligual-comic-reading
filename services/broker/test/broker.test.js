@@ -124,6 +124,64 @@ test('HTTP flow registers a bounded snapshot, returns job ids, accepts exact bin
   }
 })
 
+test('client OCR HTTP flow settles without uploading comic image bytes', async () => {
+  class TextOnlyAdapter extends ExplicitTestAdapter {
+    async translate(context) {
+      assert.equal(context.sourceBytes, null)
+      assert.equal(context.sourceContentType, null)
+      const result = await super.translate({
+        ...context,
+        sourceBytes: PNG,
+        sourceContentType: 'image/png',
+      })
+      result.overlayRegions = context.job.clientOcr.regions.map((region) => ({
+        ...region,
+        translation: 'Sức mạnh thời không',
+      }))
+      return result
+    }
+  }
+  const app = await fixture(new TextOnlyAdapter())
+  try {
+    await json(await fetch(`${app.base}/v1/snapshots`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(snapshot()),
+    }))
+    const request = {
+      ...batchRequest(),
+      pipeline: { translationMode: 'client-ocr' },
+      clientOcr: {
+        'candidate-1': {
+          page: { width: 800, height: 1200 },
+          regions: [{
+            id: 'vision-region-1',
+            x: 100,
+            y: 100,
+            width: 300,
+            height: 100,
+            source: '时空之力',
+            confidence: 0.95,
+          }],
+        },
+      },
+    }
+    const batch = await json(await fetch(`${app.base}/v1/job-batches`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'idempotency-key': 'client-ocr-request',
+      },
+      body: JSON.stringify(request),
+    }))
+    const result = await waitForResult(app.base, batch.jobIds[0])
+    assert.equal(result.overlayRegions[0].translation, 'Sức mạnh thời không')
+    assert.equal(result.overlayRegions[0].source, '时空之力')
+  } finally {
+    await app.close()
+  }
+})
+
 test('idempotency returns the original batch and rejects key reuse with another request', async () => {
   const app = await fixture()
   try {
@@ -363,6 +421,96 @@ test('Koharu adapter creates one project and one multi-page pipeline per window'
   const pipeline = calls.find((call) => call.path === '/pipelines')
   assert.deepEqual(JSON.parse(pipeline.body).pages, ['page-1', 'page-2'])
   assert.deepEqual(results.map((result) => result.overlayRegions[0].translation), ['Một', 'Hai'])
+})
+
+test('client OCR batch sends no images and runs one LLM-only Koharu pipeline', async () => {
+  const calls = []
+  let applied
+  let pageIds = []
+  const response = (value) => new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  })
+  const adapter = new KoharuAdapter({
+    pollIntervalMs: 1,
+    fetchImplementation: async (url, options = {}) => {
+      const path = new URL(url).pathname.replace('/api/v1', '')
+      calls.push({ path, method: options.method ?? 'GET', body: options.body })
+      if (path === '/llm/current') return response({
+        status: 'ready',
+        target: { kind: 'provider', providerId: 'gemini', modelId: 'gemini-3.6-flash' },
+      })
+      if (path === '/projects') return response({ id: 'project-client-ocr' })
+      if (path === '/projects/current') return response({})
+      if (path === '/history/apply') {
+        applied = JSON.parse(options.body)
+        pageIds = applied.batch.ops
+          .filter((op) => op.addPage)
+          .map((op) => op.addPage.page.id)
+        return response({ epoch: 1 })
+      }
+      if (path === '/pipelines') return response({ operationId: 'operation-client-ocr' })
+      if (path === '/operations') {
+        return response({ operations: [{ id: 'operation-client-ocr', status: 'completed' }] })
+      }
+      if (path === '/scene.json') {
+        return response({
+          scene: {
+            pages: Object.fromEntries(pageIds.map((pageId, index) => [
+              pageId,
+              {
+                width: 800,
+                height: 1200,
+                nodes: {
+                  [`text-${index}`]: {
+                    id: `text-${index}`,
+                    kind: { text: { text: index ? '二' : '一', translation: index ? 'Hai' : 'Một' } },
+                    transform: { x: 10, y: 20, width: 120, height: 60 },
+                  },
+                },
+              },
+            ])),
+          },
+        })
+      }
+      throw new Error(`Unexpected Koharu path ${path}`)
+    },
+  })
+  const contexts = ['job:one', 'job:two'].map((jobId, index) => ({
+    job: {
+      jobId,
+      batchId: 'batch:client-ocr',
+      execution: { resolvedExecution: { provider: 'gemini', model: 'gemini-3.6-flash' } },
+      pipeline: { translationMode: 'client-ocr' },
+      language: { source: 'zh-Hans', target: 'vi' },
+      glossaryEntries: [],
+      clientOcr: {
+        page: { width: 800, height: 1200 },
+        regions: [{
+          id: `vision-region-${index}`,
+          x: 10,
+          y: 20,
+          width: 120,
+          height: 60,
+          rotation: 0,
+          source: index ? '二' : '一',
+          confidence: 0.9,
+        }],
+      },
+    },
+    sourceBytes: null,
+    sourceContentType: null,
+    signal: new AbortController().signal,
+  }))
+  const results = await adapter.translateBatch(contexts)
+  assert.equal(calls.some((call) => call.path === '/pages'), false)
+  assert.equal(applied.batch.ops.filter((op) => op.addPage).length, 2)
+  assert.equal(applied.batch.ops.filter((op) => op.addNode).length, 2)
+  assert.equal(applied.batch.ops.find((op) => op.addNode).addNode.node.kind.text.detector, 'apple-vision')
+  const pipeline = calls.find((call) => call.path === '/pipelines')
+  assert.deepEqual(JSON.parse(pipeline.body).steps, ['llm'])
+  assert.deepEqual(results.map((result) => result.overlayRegions[0].translation), ['Một', 'Hai'])
+  assert.deepEqual(results.map((result) => result.renderedContentType), ['image/png', 'image/png'])
 })
 
 test('explicit flush coalesces slow HTTP uploads from a partially uploaded batch', async () => {

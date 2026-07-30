@@ -193,6 +193,7 @@ export class TranslationBroker {
           state: 'CREATED',
           candidate,
           pipeline: request.pipeline,
+          clientOcr: request.clientOcr?.[candidate.candidateId],
           language: request.language,
           translationStyle: request.translationStyle,
           glossarySnapshot: request.glossarySnapshot,
@@ -209,7 +210,11 @@ export class TranslationBroker {
         }
         let job = transitionJob(created, 'VALIDATED', { timestamp: now })
         job = transitionJob(job, 'BUDGET_RESERVED', { timestamp: now })
-        job = transitionJob(job, 'WAITING_ASSET', { timestamp: now })
+        job = transitionJob(
+          job,
+          request.pipeline.translationMode === 'client-ocr' ? 'QUEUED' : 'WAITING_ASSET',
+          { timestamp: now },
+        )
         state.jobs[jobId] = structuredClone(job)
         jobIds.push(jobId)
       }
@@ -224,6 +229,9 @@ export class TranslationBroker {
       state.idempotency[scope] = { requestHash, batchId }
       return deriveBatch(state.batches[batchId], jobIds.map((jobId) => state.jobs[jobId]))
     })
+    if (request.pipeline.translationMode === 'client-ocr') {
+      this.#scheduleBatch(result.batchId, { immediate: true })
+    }
     return result
   }
 
@@ -441,10 +449,11 @@ export class TranslationBroker {
           await this.#finishCancelled(jobId)
           return null
         }
+        const textOnly = job.pipeline.translationMode === 'client-ocr'
         return {
           job,
-          sourceBytes: await this.repository.readAsset(jobId, 'source'),
-          sourceContentType: job.asset.contentType,
+          sourceBytes: textOnly ? null : await this.repository.readAsset(jobId, 'source'),
+          sourceContentType: textOnly ? null : job.asset.contentType,
           signal: controller.signal,
         }
       }))

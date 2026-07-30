@@ -1,4 +1,10 @@
+import { randomUUID } from 'node:crypto'
+
 const TERMINAL_OPERATIONS = new Set(['completed', 'completed_with_errors', 'cancelled', 'failed'])
+const TRANSPARENT_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M/wHwAF/gL+Xy4Z2QAAAABJRU5ErkJggg==',
+  'base64',
+)
 
 function wait(milliseconds, signal) {
   return new Promise((resolve, reject) => {
@@ -131,6 +137,7 @@ export class KoharuAdapter {
     const [{ job, signal }] = contexts
     const execution = job.execution.resolvedExecution
     const clientDevice = job.pipeline.translationMode === 'client-device'
+    const clientOcr = job.pipeline.translationMode === 'client-ocr'
     for (const context of contexts) {
       const candidateExecution = context.job.execution.resolvedExecution
       if (
@@ -175,29 +182,89 @@ export class KoharuAdapter {
     )
     if (!project?.id) throw new Error('Koharu did not return a project id')
     await this.#json('/projects/current', json('PUT', { id: project.id }), signal)
-    const pageIds = await Promise.all(contexts.map(async (context) => {
-      const form = new FormData()
-      const extension =
-        context.sourceContentType === 'image/png'
-          ? 'png'
-          : context.sourceContentType === 'image/webp'
-            ? 'webp'
-            : 'jpg'
-      form.append(
-        'file',
-        new Blob([context.sourceBytes], { type: context.sourceContentType }),
-        `page-${context.job.jobId}.${extension}`,
-      )
-      form.append('replace', 'false')
-      const uploaded = await this.#json('/pages', { method: 'POST', body: form }, signal)
-      const pageId = uploaded?.pages?.[0]
-      if (!pageId) throw new Error('Koharu did not return a page id')
-      return pageId
-    }))
+    const pageIds = clientOcr
+      ? contexts.map(() => randomUUID())
+      : await Promise.all(contexts.map(async (context) => {
+          const form = new FormData()
+          const extension =
+            context.sourceContentType === 'image/png'
+              ? 'png'
+              : context.sourceContentType === 'image/webp'
+                ? 'webp'
+                : 'jpg'
+          form.append(
+            'file',
+            new Blob([context.sourceBytes], { type: context.sourceContentType }),
+            `page-${context.job.jobId}.${extension}`,
+          )
+          form.append('replace', 'false')
+          const uploaded = await this.#json('/pages', { method: 'POST', body: form }, signal)
+          const pageId = uploaded?.pages?.[0]
+          if (!pageId) throw new Error('Koharu did not return a page id')
+          return pageId
+        }))
+    if (clientOcr) {
+      const ops = []
+      for (const [pageIndex, context] of contexts.entries()) {
+        const recognized = context.job.clientOcr
+        if (!recognized || !Array.isArray(recognized.regions)) {
+          throw Object.assign(new Error('Client OCR payload is missing for a Koharu page'), {
+            code: 'MISSING_CLIENT_OCR',
+          })
+        }
+        ops.push({
+          addPage: {
+            page: {
+              id: pageIds[pageIndex],
+              name: `client-ocr-${pageIndex + 1}`,
+              width: Math.max(1, Math.round(recognized.page.width)),
+              height: Math.max(1, Math.round(recognized.page.height)),
+              nodes: {},
+            },
+            at: pageIndex,
+          },
+        })
+        recognized.regions.forEach((region, regionIndex) => {
+          ops.push({
+            addNode: {
+              page: pageIds[pageIndex],
+              node: {
+                id: randomUUID(),
+                transform: {
+                  x: region.x,
+                  y: region.y,
+                  width: region.width,
+                  height: region.height,
+                  rotationDeg: region.rotation,
+                },
+                visible: true,
+                kind: {
+                  text: {
+                    confidence: region.confidence,
+                    sourceLang: context.job.language.source,
+                    detector: 'apple-vision',
+                    text: region.source,
+                    lockLayoutBox: true,
+                  },
+                },
+              },
+              at: regionIndex,
+            },
+          })
+        })
+      }
+      if (ops.length > 0) {
+        await this.#json('/history/apply', json('POST', {
+          batch: { ops, label: 'Manga Sub client OCR' },
+        }), signal)
+      }
+    }
     const started = await this.#json('/pipelines', json('POST', {
       steps: clientDevice
         ? ['comic-text-bubble-detector', 'paddle-ocr-vl-1.6']
-        : ['comic-text-bubble-detector', 'paddle-ocr-vl-1.6', 'llm'],
+        : clientOcr
+          ? ['llm']
+          : ['comic-text-bubble-detector', 'paddle-ocr-vl-1.6', 'llm'],
       pages: pageIds,
       targetLanguage: job.language.target,
       systemPrompt: clientDevice
@@ -225,8 +292,8 @@ export class KoharuAdapter {
     const snapshot = await this.#json('/scene.json', {}, signal)
     return contexts.map((context, index) => ({
       ...parseRegions(snapshot.scene ?? snapshot, pageIds[index], { sourceOnly: clientDevice }),
-      renderedBytes: context.sourceBytes,
-      renderedContentType: context.sourceContentType,
+      renderedBytes: clientOcr ? TRANSPARENT_PNG : context.sourceBytes,
+      renderedContentType: clientOcr ? 'image/png' : context.sourceContentType,
       providerReportedModel: execution.model,
       tokenCounts: { input: 0, output: 0 },
       estimatedCostMicros: 0,
@@ -243,26 +310,32 @@ export class ExplicitTestAdapter {
   async translate({ job, sourceBytes, sourceContentType, signal }) {
     signal?.throwIfAborted()
     const candidate = job.candidate
+    const clientOcr = job.pipeline.translationMode === 'client-ocr' ? job.clientOcr : null
     return {
-      page: {
+      page: clientOcr?.page ?? {
         width: candidate.intrinsicWidth ?? Math.round(candidate.renderedRect.width),
         height: candidate.intrinsicHeight ?? Math.round(candidate.renderedRect.height),
       },
-      overlayRegions: [{
-        id: 'test-region',
-        x: 0,
-        y: 0,
-        width: Math.min(320, candidate.intrinsicWidth ?? candidate.renderedRect.width),
-        height: 80,
-        rotation: 0,
-        source: '[explicit test mode]',
-        translation: job.pipeline.translationMode === 'client-device'
-          ? ''
-          : '[bản dịch thử nghiệm]',
-        confidence: 1,
-      }],
-      renderedBytes: sourceBytes,
-      renderedContentType: sourceContentType,
+      overlayRegions: clientOcr
+        ? clientOcr.regions.map((region) => ({
+            ...region,
+            translation: `[bản dịch thử] ${region.source}`,
+          }))
+        : [{
+            id: 'test-region',
+            x: 0,
+            y: 0,
+            width: Math.min(320, candidate.intrinsicWidth ?? candidate.renderedRect.width),
+            height: 80,
+            rotation: 0,
+            source: '[explicit test mode]',
+            translation: job.pipeline.translationMode === 'client-device'
+              ? ''
+              : '[bản dịch thử nghiệm]',
+            confidence: 1,
+          }],
+      renderedBytes: clientOcr ? TRANSPARENT_PNG : sourceBytes,
+      renderedContentType: clientOcr ? 'image/png' : sourceContentType,
       providerReportedModel: job.execution.resolvedExecution.model,
       tokenCounts: { input: 1, output: 1 },
       estimatedCostMicros: 1,

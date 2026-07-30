@@ -87,3 +87,62 @@ test('safe telemetry rejects URL and OCR content by construction', () => {
       error.code === 'UNSAFE_TELEMETRY_FIELD',
   )
 })
+
+test('accepts bounded client OCR geometry only for selected snapshot candidates', () => {
+  const value = validateJobBatchRequest(
+    {
+      snapshotId: 'snapshot-1',
+      candidateIds: ['candidate-0'],
+      requestedExecution: { locus: 'managed' },
+      pipeline: { translationMode: 'client-ocr' },
+      clientOcr: {
+        'candidate-0': {
+          page: { width: 1600, height: 2000 },
+          regions: [{
+            id: 'vision-region-1',
+            x: 100,
+            y: 120,
+            width: 400,
+            height: 180,
+            source: '时空之力',
+            confidence: 0.94,
+          }],
+        },
+      },
+    },
+    snapshot(),
+  )
+  assert.equal(value.pipeline.translationMode, 'client-ocr')
+  assert.equal(value.clientOcr['candidate-0'].regions[0].source, '时空之力')
+  assert.equal(value.clientOcr['candidate-0'].regions[0].rotation, 0)
+})
+
+test('rejects client OCR geometry outside its declared page', () => {
+  assert.throws(
+    () => validateJobBatchRequest(
+      {
+        snapshotId: 'snapshot-1',
+        candidateIds: ['candidate-0'],
+        requestedExecution: {},
+        pipeline: { translationMode: 'client-ocr' },
+        clientOcr: {
+          'candidate-0': {
+            page: { width: 100, height: 100 },
+            regions: [{
+              id: 'vision-region-1',
+              x: 80,
+              y: 0,
+              width: 30,
+              height: 10,
+              source: '越界',
+            }],
+          },
+        },
+      },
+      snapshot(),
+    ),
+    (error) =>
+      error instanceof ProtocolValidationError &&
+      error.code === 'CLIENT_OCR_REGION_OUT_OF_BOUNDS',
+  )
+})

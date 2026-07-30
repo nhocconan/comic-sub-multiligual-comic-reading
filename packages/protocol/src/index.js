@@ -13,7 +13,8 @@ export const PROCESSING_LOCI = Object.freeze([
   'managed',
 ])
 export const TRANSLATION_PROFILES = Object.freeze(['fast', 'balanced', 'quality'])
-export const TRANSLATION_MODES = Object.freeze(['server', 'client-device'])
+export const TRANSLATION_MODES = Object.freeze(['server', 'client-device', 'client-ocr'])
+export const MAX_CLIENT_OCR_REGIONS_PER_PAGE = 200
 export const ACQUISITION_MODES = Object.freeze([
   'source-blob',
   'broker-fetch',
@@ -320,6 +321,73 @@ export function validateJobBatchRequest(value, snapshot) {
   }
 
   const pipeline = object(input.pipeline ?? {}, '$.pipeline')
+  const translationMode = enumeration(
+    pipeline.translationMode ?? 'server',
+    TRANSLATION_MODES,
+    '$.pipeline.translationMode',
+  )
+  let clientOcr
+  if (translationMode === 'client-ocr') {
+    const pages = object(input.clientOcr, '$.clientOcr')
+    const unexpected = Object.keys(pages).filter((candidateId) => !candidateIds.includes(candidateId))
+    if (unexpected.length > 0) {
+      fail(
+        'UNEXPECTED_CLIENT_OCR_PAGE',
+        `Client OCR contains an unselected candidate: ${unexpected[0]}`,
+        `$.clientOcr.${unexpected[0]}`,
+      )
+    }
+    clientOcr = Object.fromEntries(candidateIds.map((candidateId) => {
+      const path = `$.clientOcr.${candidateId}`
+      const pageInput = object(pages[candidateId], path)
+      const page = object(pageInput.page, `${path}.page`)
+      const width = number(page.width, `${path}.page.width`, { min: 1, max: 100_000 })
+      const height = number(page.height, `${path}.page.height`, { min: 1, max: 100_000 })
+      if (!Array.isArray(pageInput.regions)) {
+        fail('INVALID_CLIENT_OCR_REGIONS', `${path}.regions must be an array`, `${path}.regions`)
+      }
+      if (pageInput.regions.length > MAX_CLIENT_OCR_REGIONS_PER_PAGE) {
+        fail(
+          'CLIENT_OCR_REGION_LIMIT_EXCEEDED',
+          `Client OCR pages may contain at most ${MAX_CLIENT_OCR_REGIONS_PER_PAGE} regions`,
+          `${path}.regions`,
+        )
+      }
+      const normalizedRegions = pageInput.regions.map((regionInput, index) => {
+        const regionPath = `${path}.regions[${index}]`
+        const region = object(regionInput, regionPath)
+        const x = number(region.x, `${regionPath}.x`, { min: 0, max: width })
+        const y = number(region.y, `${regionPath}.y`, { min: 0, max: height })
+        const regionWidth = number(region.width, `${regionPath}.width`, { min: 0.5, max: width })
+        const regionHeight = number(region.height, `${regionPath}.height`, { min: 0.5, max: height })
+        if (x + regionWidth > width + 1 || y + regionHeight > height + 1) {
+          fail(
+            'CLIENT_OCR_REGION_OUT_OF_BOUNDS',
+            `${regionPath} must fit within its page`,
+            regionPath,
+          )
+        }
+        return {
+          id: uuidLike(region.id, `${regionPath}.id`),
+          x,
+          y,
+          width: regionWidth,
+          height: regionHeight,
+          rotation: number(region.rotation ?? 0, `${regionPath}.rotation`, { min: -360, max: 360 }),
+          source: string(region.source, `${regionPath}.source`, { max: 2_000 }),
+          confidence: number(region.confidence ?? 0, `${regionPath}.confidence`, { min: 0, max: 1 }),
+        }
+      })
+      unique(normalizedRegions.map((region) => region.id), `${path}.regions[].id`)
+      return [candidateId, { page: { width, height }, regions: normalizedRegions }]
+    }))
+  } else if (input.clientOcr !== undefined) {
+    fail(
+      'UNEXPECTED_CLIENT_OCR',
+      '$.clientOcr requires pipeline.translationMode client-ocr',
+      '$.clientOcr',
+    )
+  }
   const language = object(input.language ?? {}, '$.language')
   const glossary = object(input.glossarySnapshot ?? {}, '$.glossarySnapshot')
   const budget = object(input.budget ?? {}, '$.budget')
@@ -344,11 +412,7 @@ export function validateJobBatchRequest(value, snapshot) {
     candidateIds: [...candidateIds],
     requestedExecution,
     pipeline: {
-      translationMode: enumeration(
-        pipeline.translationMode ?? 'server',
-        TRANSLATION_MODES,
-        '$.pipeline.translationMode',
-      ),
+      translationMode,
       ocrVersion: string(pipeline.ocrVersion ?? 'paddle-ocr-vl-1.6', '$.pipeline.ocrVersion', {
         max: 128,
       }),
@@ -368,6 +432,7 @@ export function validateJobBatchRequest(value, snapshot) {
         { max: 128 },
       ),
     },
+    clientOcr,
     language: {
       source: string(language.source ?? 'zh-Hans', '$.language.source', {
         max: 64,
