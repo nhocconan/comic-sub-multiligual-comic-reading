@@ -1939,11 +1939,22 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
     private func runQAPostTranslationScrollCheck() async {
         #if DEBUG
         let environment = ProcessInfo.processInfo.environment
-        guard let fragment = environment["COMIC_SUB_QA_POST_SCROLL_FRAGMENT"],
-              !fragment.isEmpty else { return }
-        _ = try? await webView.evaluateJavaScript(
-            "window.__comicSubReaderBridge && window.__comicSubReaderBridge.scrollToSourceFragment(\(javascriptString(fragment)))"
-        )
+        let fragment = environment["COMIC_SUB_QA_POST_SCROLL_FRAGMENT"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let requestedIndex = Int(environment["COMIC_SUB_QA_POST_SCROLL_INDEX"] ?? "")
+        if let fragment, !fragment.isEmpty {
+            _ = try? await webView.evaluateJavaScript(
+                "window.__comicSubReaderBridge && window.__comicSubReaderBridge.scrollToSourceFragment(\(javascriptString(fragment)))"
+            )
+        } else if let requestedIndex {
+            let target = candidates.first(where: { $0.index == requestedIndex })
+                ?? (candidates.indices.contains(requestedIndex) ? candidates[requestedIndex] : nil)
+            guard let target else { return }
+            _ = try? await webView.evaluateJavaScript(
+                "window.__comicSubReaderBridge && window.__comicSubReaderBridge.scrollToCandidate(\(javascriptString(target.id)))"
+            )
+        } else {
+            return
+        }
         try? await Task.sleep(nanoseconds: 750_000_000)
         if let report = try? await webView.evaluateJavaScript(
             "window.__comicSubReaderBridge && window.__comicSubReaderBridge.alignmentReport()"
