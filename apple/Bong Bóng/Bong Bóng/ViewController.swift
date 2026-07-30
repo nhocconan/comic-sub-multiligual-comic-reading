@@ -1090,11 +1090,36 @@ private enum ReaderBridge {
         ensureLayer(id);
         return layout(id);
       };
-      const place = (node, region, page, rect) => Object.assign(node.style, { position: 'absolute', left: `${region.x / page.width * rect.width}px`, top: `${region.y / page.height * rect.height}px`, width: `${region.width / page.width * rect.width}px`, height: `${region.height / page.height * rect.height}px`, transform: `rotate(${region.rotation || 0}deg)` });
+      const clamp = (value, minimum, maximum) => Math.max(minimum, Math.min(maximum, value));
+      const place = (node, region, page, rect, expandForTranslation = false) => {
+        const base = {
+          x: region.x / page.width * rect.width,
+          y: region.y / page.height * rect.height,
+          width: region.width / page.width * rect.width,
+          height: region.height / page.height * rect.height
+        };
+        const sourceLength = Math.max(1, [...(region.source || '')].length);
+        const targetLength = [...(region.translation || '')].length;
+        const lengthRatio = targetLength / sourceLength;
+        const widthFactor = expandForTranslation ? Math.min(1.85, 1 + Math.max(0, lengthRatio - 1) * .22) : 1;
+        const heightFactor = expandForTranslation ? Math.min(2.8, 1 + Math.max(0, lengthRatio - 1) * .48) : 1;
+        const width = Math.min(rect.width, base.width * widthFactor);
+        const height = Math.min(rect.height, base.height * heightFactor);
+        const centerX = base.x + base.width / 2;
+        const centerY = base.y + base.height / 2;
+        Object.assign(node.style, {
+          position: 'absolute',
+          left: `${clamp(centerX - width / 2, 0, rect.width - width)}px`,
+          top: `${clamp(centerY - height / 2, 0, rect.height - height)}px`,
+          width: `${width}px`,
+          height: `${height}px`,
+          transform: `rotate(${region.rotation || 0}deg)`
+        });
+      };
       const fitText = node => {
-        let size = Math.min(16, Math.max(8, node.clientHeight * .42));
+        let size = Math.min(18, Math.max(12, node.clientHeight * .42));
         node.style.fontSize = `${size}px`;
-        while (size > 6 && (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth)) {
+        while (size > 9.5 && (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth)) {
           size -= .5; node.style.fontSize = `${size}px`;
         }
       };
@@ -1106,7 +1131,7 @@ private enum ReaderBridge {
       const applyRegions = (id, regions, page, semanticOnly) => {
         const target = targetFor(id); if (!target) return false;
         if (!semanticOnly) target.layer.replaceChildren();
-        regions.forEach(region => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, region, page, target.rect); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:2px;background:rgba(255,253,245,.96);color:#17130e;border-radius:4px;text-align:center;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.08;overflow:hidden;word-break:break-word;'; target.layer.append(node); if (!semanticOnly) fitText(node); }); return true;
+        regions.forEach(region => { const node = document.createElement('div'); node.textContent = region.translation; node.setAttribute('role', 'note'); node.setAttribute('aria-label', `Bản dịch: ${region.translation}`); place(node, region, page, target.rect, !semanticOnly); node.style.cssText += semanticOnly ? ';opacity:0;' : ';display:flex;align-items:center;justify-content:center;box-sizing:border-box;padding:2px;background:rgba(255,253,245,.96);color:#17130e;border-radius:4px;text-align:center;font:600 14px -apple-system,BlinkMacSystemFont,sans-serif;line-height:1.08;overflow:hidden;word-break:break-word;'; target.layer.append(node); if (!semanticOnly) fitText(node); }); return true;
       };
       const relayout = () => layers.forEach((_, id) => layout(id));
       window.__comicSubReaderBridge = { scan, scrollToCandidate: id => { const image = imageFor(id); if (image) image.scrollIntoView({ block: 'start', behavior: 'auto' }); return !!image; }, applyRendered, applyRegions, relayout, clear: id => { layers.get(id)?.remove(); layers.delete(id); } };

@@ -93,6 +93,9 @@ test('CJK on-device OCR refines suspicious fast results and rejects Latin garbag
   assert.match(source, /source: previous\.source \+ region\.source/)
   assert.match(source, /const fitText = node =>/)
   assert.match(source, /if \(!semanticOnly\) fitText\(node\)/)
+  assert.match(source, /const lengthRatio = targetLength \/ sourceLength/)
+  assert.match(source, /Math\.min\(2\.8, 1 \+ Math\.max\(0, lengthRatio - 1\) \* \.48\)/)
+  assert.match(source, /while \(size > 9\.5/)
 })
 
 test('Safe Automatic prefers an installed Apple language pack before broker credentials', () => {
