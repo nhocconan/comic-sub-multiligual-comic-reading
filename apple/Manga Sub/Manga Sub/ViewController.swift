@@ -252,6 +252,13 @@ private enum BrokerEndpointPolicy {
     static func allows(_ endpoint: String, discovered: DiscoveredBroker?) -> Bool {
         guard let url = URL(string: endpoint) else { return false }
         if url.scheme?.lowercased() == "https" { return true }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["COMIC_SUB_QA_ENDPOINT"] == endpoint,
+           url.scheme?.lowercased() == "http",
+           ["127.0.0.1", "localhost", "::1"].contains(url.host?.lowercased() ?? "") {
+            return true
+        }
+        #endif
         guard url.scheme?.lowercased() == "http", discovered?.endpoint == endpoint,
               let host = url.host?.lowercased() else { return false }
         // Bonjour names are scoped to the local link. The app never accepts an
@@ -741,6 +748,13 @@ private final class OnDeviceComicOCR {
         var cleaned = regions.compactMap { region -> BrokerRegion? in
             let text = sanitized(region.source, sourceLanguage: sourceLanguage)
             guard !text.isEmpty, !isSiteWatermark(text) else { return nil }
+            // A wide, shallow line at the very top is chapter chrome, not a
+            // speech bubble. Sending it through translation creates a floating
+            // banner above the first panel on iPhone/iPad.
+            let isChapterHeading = region.y < pageHeight * 0.07 &&
+                region.width > pageWidth * 0.25 &&
+                region.height < pageHeight * 0.05
+            guard !isChapterHeading else { return nil }
             return BrokerRegion(
                 id: region.id,
                 x: region.x,
@@ -1473,6 +1487,10 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         case "local-stub": settings.route = .onDevice
         case "remote": settings.route = .managedCloud
         default: break
+        }
+        if let qaEndpoint = ProcessInfo.processInfo.environment["COMIC_SUB_QA_ENDPOINT"],
+           !qaEndpoint.isEmpty {
+            settings.endpoint = qaEndpoint
         }
         let developerStartURL = ProcessInfo.processInfo.environment["COMIC_SUB_START_URL"].flatMap(URL.init(string:))
         #else
