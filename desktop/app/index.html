@@ -42,9 +42,9 @@
           <div id="route-chooser" class="route-chooser" hidden>
             <p class="eyebrow">WHERE IT RUNS</p>
             <h2>Dịch chương này ở đâu?</h2>
-            <button data-route="local"><b>Trên máy này</b><small>Riêng tư · cần tải engine</small></button>
-            <button data-route="paired"><b>Máy tính của tôi</b><small>Riêng tư · quét QR để kết nối</small></button>
+            <button data-route="local"><b>On this Mac</b><small>Private · Apple Vision + Translation</small></button>
             <button data-route="managed" class="route-cloud"><b>Manga Sub Cloud</b><small>Nhanh nhất · dùng thử không cần tài khoản</small></button>
+            <button data-route="byo"><b>Your API key</b><small>Local OCR · only recognized text leaves this Mac</small></button>
             <p class="route-note">Luôn xem được chính xác dữ liệu đi đâu trước khi chạy.</p>
           </div>
 
@@ -87,11 +87,12 @@
         <div class="panel-heading"><p class="eyebrow">PREFERENCES</p><h1>Chất lượng, ngôn ngữ và quyền riêng tư.</h1><p>Model và token chỉ hiện khi bạn chủ động mở phần nâng cao.</p></div>
         <div class="settings-grid">
           <section class="settings-section"><h2>Reader</h2>
-            <label>Ngôn ngữ đích<select id="target-language"><option value="vi-VN">Vietnamese</option><option value="en-US">English</option><option value="fr-FR">French</option></select></label>
+            <label>Source language<select id="source-language"><option value="auto">Detect automatically</option><option value="zh-Hans">Chinese (Simplified)</option><option value="zh-Hant">Chinese (Traditional)</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="en">English</option></select></label>
+            <label>Target language<select id="target-language"><option value="vi-VN">Vietnamese</option><option value="en-US">English</option><option value="fr-FR">French</option><option value="es-ES">Spanish</option><option value="de-DE">German</option><option value="pt-BR">Portuguese</option><option value="id-ID">Indonesian</option><option value="ja-JP">Japanese</option><option value="ko-KR">Korean</option><option value="zh-CN">Chinese (Simplified)</option><option value="zh-TW">Chinese (Traditional)</option></select></label>
             <label>Định dạng dịch<select id="profile"><option value="fast">Fast</option><option value="balanced">Balanced</option><option value="quality">Quality</option></select></label>
           </section>
           <section class="settings-section"><h2>Translation location</h2>
-            <label>Route mặc định<select id="default-route"><option value="ask">Ask each time</option><option value="local">On this computer</option><option value="paired">My computer</option><option value="managed">Manga Sub Cloud</option><option value="byo">My computer + external AI</option></select></label>
+            <label>Route mặc định<select id="default-route"><option value="ask">Ask each time</option><option value="local">On this Mac</option><option value="managed">Manga Sub Cloud</option><option value="byo">Your API key</option></select></label>
             <p class="hint">Auto chỉ dùng route bạn đã duyệt. App không tự chuyển sang cloud.</p>
           </section>
           <section class="settings-section"><h2>Broker connection</h2>
@@ -100,9 +101,16 @@
             <button id="save-token" class="text-action">Lưu token vào credential store</button>
             <p class="hint" id="token-status">Token không được đồng bộ giữa thiết bị.</p>
           </section>
-          <section class="settings-section advanced"><h2>Advanced</h2>
-            <label>Model<input id="model-id" value="gemini-3.6-flash" /></label>
-            <p class="hint">Balanced mặc định dùng Gemini 3.6 Flash. Chỉ pin model khi bạn biết lý do.</p>
+          <section class="settings-section advanced"><h2>Your API key</h2>
+            <label>Provider<select id="byo-provider"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic Claude</option><option value="openai-compatible">OpenAI-compatible</option></select></label>
+            <label id="byo-base-row">API base URL<input id="byo-base-url" type="url" placeholder="https://api.deepseek.com/v1" /></label>
+            <label>API key<input id="byo-api-key" type="password" autocomplete="off" placeholder="Dán key để cập nhật" /></label>
+            <button id="save-byo-key" class="text-action">Lưu key vào credential store</button>
+            <p class="hint" id="byo-key-status">Key không được đồng bộ giữa thiết bị.</p>
+            <label>Model<input id="byo-model" list="byo-model-options" autocomplete="off" placeholder="Refresh catalog hoặc nhập model ID" /></label>
+            <datalist id="byo-model-options"></datalist>
+            <button id="refresh-models" class="text-action">Refresh model catalog</button>
+            <p class="hint" id="byo-model-status">Catalog được lấy trực tiếp từ provider; app không pin danh sách model.</p>
           </section>
           <section class="settings-section glossary-editor"><h2>Names used in this series</h2>
             <div id="glossary-list" class="glossary-list"></div>

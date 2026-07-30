@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('comicSub', {
   openSample: () => ipcRenderer.invoke('app:open-sample'),
   saveSettings: (patch) => ipcRenderer.invoke('app:save-settings', patch),
   setToken: (token) => ipcRenderer.invoke('app:set-token', token),
+  setProviderKey: (provider, key) => ipcRenderer.invoke('app:set-provider-key', provider, key),
+  listProviderModels: (config) => ipcRenderer.invoke('app:list-provider-models', config),
   setPrivate: (enabled) => ipcRenderer.invoke('app:set-private', enabled),
   clearHistory: (id) => ipcRenderer.invoke('app:history-clear', id),
   resume: (item) => ipcRenderer.invoke('app:resume', item),

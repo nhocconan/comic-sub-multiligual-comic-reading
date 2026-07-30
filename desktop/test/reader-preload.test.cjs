@@ -17,6 +17,7 @@ test('reader scans AMP comic image hosts used by Baozimh', () => {
   assert.match(source, /function overlayLayer\(item\)/)
   assert.match(source, /comic-sub-overlay-layer/)
   assert.match(source, /\.comic-sub-overlay-layer\{position:absolute;/)
+  assert.match(source, /\.comic-sub-overlay-layer\{position:absolute;z-index:2;/)
   assert.doesNotMatch(source, /\.comic-sub-overlay-layer\{position:fixed;/)
   assert.match(source, /document\.documentElement\.append\(layer\)/)
   assert.match(source, /layer\.style\.left = `\$\{imageRect\.left \+ window\.scrollX\}px`/)
@@ -60,10 +61,23 @@ test('desktop cloud path OCRs locally and sends text geometry without uploading 
   assert.doesNotMatch(job, /client\.upload/)
 })
 
+test('desktop local route uses native Apple Translation without invoking the broker', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'main.cjs'), 'utf8')
+  assert.match(source, /local:\s*runLocalBatch/)
+  assert.match(source, /translateLocalTextPages\(pages,\s*controller\.signal\)/)
+  const localBatch = source.slice(
+    source.indexOf('async function runLocalBatch'),
+    source.indexOf('async function runByoBatch'),
+  )
+  assert.doesNotMatch(localBatch, /brokerClient|createBatch|registerSnapshot/)
+  assert.match(localBatch, /recognizeLocalText/)
+})
+
 test('macOS credential access runs out of process with a bounded timeout', () => {
   const source = fs.readFileSync(path.join(__dirname, '..', 'main.cjs'), 'utf8')
-  assert.match(source, /function runCredentialHelper\(command, input = null\)/)
+  assert.match(source, /function runCredentialHelper\(command, input = null, service = /)
   assert.match(source, /spawn\(nativeCredentialExecutable\(\), \[command\]/)
+  assert.match(source, /MANGA_SUB_CREDENTIAL_SERVICE: service/)
   assert.match(source, /'CREDENTIAL_TIMEOUT'/)
   assert.match(source, /}, 5_000\)/)
   assert.match(source, /token: await readToken\(\)/)

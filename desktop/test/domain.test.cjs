@@ -35,7 +35,7 @@ test('production broker is the zero-config default', () => {
 
 test('receipt makes an external AI text destination explicit', () => {
   const receipt = receiptFor({ route: 'byo', serverUrl: 'https://reader.example.test' })
-  assert.equal(receipt.imageDestination, 'My computer')
+  assert.equal(receipt.imageDestination, 'This computer')
   assert.match(receipt.textDestination, /External AI/)
   assert.equal(receipt.server, 'reader.example.test')
 })

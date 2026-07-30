@@ -7,13 +7,34 @@ let activeTab = 'reader'
 let latestReceipt = null
 let toastTimer
 let pendingTranslationCommand = null
+let providerModels = []
 const panelPreferences = {
   sidebar: localStorage.getItem('mangaSub.panel.sidebar') || 'auto',
   inspector: localStorage.getItem('mangaSub.panel.inspector') || 'hidden',
 }
 
-const routeNames = { ask: 'Chưa chọn route', local: 'Trên máy này', paired: 'Máy tính của tôi', managed: 'Manga Sub Cloud', byo: 'Máy tính + external AI' }
-const languages = { 'vi-VN': 'Vietnamese', 'en-US': 'English', 'fr-FR': 'French' }
+const routeNames = { ask: 'Chưa chọn route', local: 'On this Mac', managed: 'Manga Sub Cloud', byo: 'Your API key' }
+const languages = {
+  'vi-VN': 'Vietnamese',
+  'en-US': 'English',
+  'fr-FR': 'French',
+  'es-ES': 'Spanish',
+  'de-DE': 'German',
+  'pt-BR': 'Portuguese',
+  'id-ID': 'Indonesian',
+  'ja-JP': 'Japanese',
+  'ko-KR': 'Korean',
+  'zh-CN': 'Chinese (Simplified)',
+  'zh-TW': 'Chinese (Traditional)',
+}
+const sourceLanguages = {
+  auto: 'Automatic',
+  'zh-Hans': 'Chinese',
+  'zh-Hant': 'Chinese',
+  ja: 'Japanese',
+  ko: 'Korean',
+  en: 'English',
+}
 const escapeHtml = (value) => String(value || '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[char])
 
 function toast(message) {
@@ -52,16 +73,26 @@ function togglePanel(name) {
 function renderState() {
   $('#private-toggle').classList.toggle('enabled', state.privateSession)
   $('#private-toggle').innerHTML = `<span class="private-dot"></span>${state.privateSession ? 'Private · progress not saved' : 'Private session'}`
-  $('#language-label').textContent = `Chinese → ${languages[state.settings.targetLanguage] || state.settings.targetLanguage}`
+  $('#language-label').textContent = `${sourceLanguages[state.settings.sourceLanguage] || state.settings.sourceLanguage} → ${languages[state.settings.targetLanguage] || state.settings.targetLanguage}`
   $('#route-summary').textContent = routeNames[state.settings.route] || routeNames.ask
   $('#route-chip').textContent = readerRouteText()
   $('#history-value').textContent = state.privateSession ? 'Ephemeral' : 'Local'
   $('#target-language').value = state.settings.targetLanguage
+  $('#source-language').value = state.settings.sourceLanguage || 'auto'
   $('#profile').value = state.settings.profile
   $('#default-route').value = state.settings.route
   $('#broker-endpoint').value = state.settings.brokerEndpoint || 'http://127.0.0.1:4100'
-  $('#model-id').value = state.settings.model || 'gemini-3.6-flash'
   $('#token-status').textContent = state.settings.tokenConfigured ? 'Token đã được mã hóa trong credential store của hệ điều hành.' : 'Token không được đồng bộ giữa thiết bị.'
+  $('#byo-provider').value = state.settings.byoProvider || 'gemini'
+  $('#byo-base-url').value = state.settings.byoBaseUrl || 'https://api.deepseek.com/v1'
+  $('#byo-base-row').hidden = state.settings.byoProvider !== 'openai-compatible'
+  $('#byo-model').value = state.settings.byoModel || ''
+  $('#byo-key-status').textContent = state.settings.byoKeyConfigured
+    ? 'Key đã được mã hóa trong credential store của hệ điều hành.'
+    : 'Key không được đồng bộ giữa thiết bị.'
+  $('#byo-model-options').innerHTML = providerModels
+    .map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.name || model.id)}</option>`)
+    .join('')
   $('#migration-banner').hidden = !state.needsModelChoice
   renderLibrary(); renderGlossary()
 }
@@ -105,7 +136,7 @@ function ensureRoute(command) {
     $('#route-chooser').scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     return
   }
-  $('#queue-status').innerHTML = '<span class="pulse"></span><span>Đang gửi snapshot đã xác nhận đến broker…</span>'
+  $('#queue-status').innerHTML = '<span class="pulse"></span><span>Đang chuẩn bị trang đã xác nhận…</span>'
   window.comicSub.readerCommand({ type: command })
   if (state.glossaryConsent === null && !state.privateSession) $('#continuity-card').hidden = false
 }
@@ -121,9 +152,9 @@ async function chooseRoute(route) {
   await saveSettings({ route })
   $('#route-chooser').hidden = true
   toast(`${routeNames[route]} đã được chọn. Bạn luôn có thể đổi trước khi dịch.`)
-  const command = pendingTranslationCommand || 'translate-current'
+  const command = pendingTranslationCommand
   pendingTranslationCommand = null
-  ensureRoute(command)
+  if (command) ensureRoute(command)
 }
 
 function updateReaderStatus(payload) {
@@ -146,6 +177,7 @@ function updateReaderStatus(payload) {
       OCR: 'Đang đọc chữ trên máy · ảnh không được tải lên cloud',
       QUEUED: 'Đã đọc chữ · đang xếp hàng dịch',
       TRANSLATING: 'Đang dịch text theo lô',
+      TRANSLATING_LOCAL: 'Apple Translation đang dịch cả lô ngay trên máy',
       PROCESSING: 'Đang dịch text theo lô',
       RENDERING: 'Đang chuẩn bị lớp chữ trên máy',
     }
@@ -186,11 +218,51 @@ function bind() {
   $('#lookup-accept').addEventListener('click', async () => { state.glossaryConsent = await window.comicSub.setGlossaryConsent('allowed'); $('#continuity-card').hidden = true; toast('Chỉ title chuẩn hóa và ngôn ngữ đích được dùng để tra cứu.') })
   $('#lookup-decline').addEventListener('click', async () => { state.glossaryConsent = await window.comicSub.setGlossaryConsent('local-only'); $('#continuity-card').hidden = true; toast('Series này chỉ dùng Local Continuity Memory.') })
   $('#target-language').addEventListener('change', (event) => saveSettings({ targetLanguage: event.target.value }))
+  $('#source-language').addEventListener('change', (event) => saveSettings({ sourceLanguage: event.target.value }))
   $('#profile').addEventListener('change', (event) => saveSettings({ profile: event.target.value }))
   $('#default-route').addEventListener('change', (event) => saveSettings({ route: event.target.value }))
   $('#broker-endpoint').addEventListener('change', (event) => saveSettings({ brokerEndpoint: event.target.value }))
-  $('#model-id').addEventListener('change', (event) => saveSettings({ model: event.target.value, modelProvenance: 'user-pinned' }))
   $('#save-token').addEventListener('click', async () => { try { const result = await window.comicSub.setToken($('#provider-token').value); $('#provider-token').value = ''; state.settings.tokenConfigured = result.tokenConfigured; renderState(); toast('Token đã được lưu trong credential store.') } catch (error) { toast(error.message) } })
+  $('#byo-provider').addEventListener('change', async (event) => {
+    providerModels = []
+    await saveSettings({ byoProvider: event.target.value, byoModel: '' })
+  })
+  $('#byo-base-url').addEventListener('change', (event) => saveSettings({ byoBaseUrl: event.target.value, byoModel: '' }))
+  $('#byo-model').addEventListener('change', (event) => saveSettings({ byoModel: event.target.value }))
+  $('#save-byo-key').addEventListener('click', async () => {
+    try {
+      const provider = $('#byo-provider').value
+      const result = await window.comicSub.setProviderKey(provider, $('#byo-api-key').value)
+      $('#byo-api-key').value = ''
+      state.settings.byoKeyConfigured = result.keyConfigured
+      renderState()
+      toast(result.keyConfigured ? 'API key đã được lưu trong credential store.' : 'API key đã được xóa.')
+    } catch (error) { toast(error.message) }
+  })
+  $('#refresh-models').addEventListener('click', async () => {
+    const button = $('#refresh-models')
+    button.disabled = true
+    $('#byo-model-status').textContent = 'Đang lấy catalog trực tiếp từ provider…'
+    try {
+      const catalog = await window.comicSub.listProviderModels({
+        provider: $('#byo-provider').value,
+        baseUrl: $('#byo-base-url').value,
+      })
+      providerModels = catalog.models || []
+      if (!state.settings.byoModel && catalog.recommended) {
+        await saveSettings({ byoModel: catalog.recommended })
+      } else {
+        renderState()
+      }
+      $('#byo-model-status').textContent = `${providerModels.length} text model · cập nhật ${new Date(catalog.fetchedAt).toLocaleTimeString()}`
+      toast(catalog.recommended ? `Balanced đề xuất ${catalog.recommended}` : 'Catalog đã cập nhật.')
+    } catch (error) {
+      $('#byo-model-status').textContent = error.message
+      toast(error.message)
+    } finally {
+      button.disabled = false
+    }
+  })
   $('#add-term-form').addEventListener('submit', async (event) => { event.preventDefault(); state.glossary = await window.comicSub.addTerm($('#term-input').value); $('#term-input').value = ''; renderGlossary() })
   $('#library-list').addEventListener('click', async (event) => { const resumeId = event.target.dataset.resume; const deleteId = event.target.dataset.delete; if (resumeId) { const item = state.history.find((entry) => entry.id === resumeId); await window.comicSub.resume(item); setTab('reader') } if (deleteId) { state.history = await window.comicSub.clearHistory(deleteId); renderLibrary() } })
   $$('#migration-banner [data-choice]').forEach((button) => button.addEventListener('click', async () => { state = await window.comicSub.chooseModelMigration(button.dataset.choice); renderState(); toast('Thiết lập model đã được cập nhật.') }))
@@ -208,7 +280,22 @@ async function init() {
   window.comicSub.on('app:navigation', ({ url }) => { $('#address-input').value = url })
   window.comicSub.on('app:history', (history) => { state.history = history; renderLibrary() })
   window.comicSub.on('app:reader-crashed', () => toast('Reader đã dừng. Bạn có thể thử mở lại chương này.'))
-  window.comicSub.on('app:broker-receipt', (receipt) => { latestReceipt = { id: receipt.jobId, route: receipt.route, language: state.settings.targetLanguage, model: receipt.resolvedModel, image: receipt.route === 'managed' ? 'Manga Sub Cloud' : 'My computer', text: receipt.resolvedProvider === 'gemini' ? `Google Gemini · ${receipt.resolvedModel}` : receipt.resolvedProvider }; renderReceipt() })
+  window.comicSub.on('app:broker-receipt', (receipt) => {
+    const local = receipt.route === 'local'
+    latestReceipt = {
+      id: receipt.jobId,
+      route: receipt.route,
+      language: state.settings.targetLanguage,
+      model: receipt.resolvedModel,
+      image: receipt.route === 'managed' ? 'Manga Sub Cloud' : 'This Mac',
+      text: local
+        ? 'Apple Translation · on device'
+        : receipt.resolvedProvider === 'gemini'
+          ? `Google Gemini · ${receipt.resolvedModel}`
+          : receipt.resolvedProvider,
+    }
+    renderReceipt()
+  })
 }
 
 init()

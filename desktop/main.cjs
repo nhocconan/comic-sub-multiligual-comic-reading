@@ -7,6 +7,8 @@ const { randomUUID } = require('node:crypto')
 const { spawn } = require('node:child_process')
 const { DEFAULT_SETTINGS, migrateSettings, safeAssetReferrer, safeUrl } = require('./lib/domain.cjs')
 const { ALLOWED_TYPES, BrokerClientError, createBrokerClient, normalizeEndpoint, readBounded, sha256, sniffImageType } = require('./lib/broker-client.cjs')
+const { isLoopbackCompatible, listProviderModels, normalizeProviderConfig, recommendModel, translateOcrPages } = require('./lib/byo-provider.cjs')
+const { attachNativeTranslations, nativeTranslationInput } = require('./lib/native-translation.cjs')
 
 function prepareUserDataPath() {
   const isolatedPath = String(process.env.MANGA_SUB_USER_DATA_DIR || '').trim()
@@ -44,6 +46,7 @@ let pendingHistory
 let activeSnapshot = null
 let activeJobs = new Map()
 let tokenConfiguredCache = false
+const providerKeyConfiguredCache = new Map()
 const readerBounds = { x: 296, y: 84, width: 820, height: 740 }
 const appIconPath = path.join(__dirname, 'build', 'icon.png')
 
@@ -88,10 +91,15 @@ function nativeCredentialExecutable() {
     : path.join(__dirname, 'bin', 'manga-sub-credentials')
 }
 
-function runCredentialHelper(command, input = null) {
+function runCredentialHelper(command, input = null, service = 'com.tienle.comicsub.broker-token') {
+  if (!/^com\.tienle\.mangasub\.[a-z0-9.-]+$/.test(service)
+    && service !== 'com.tienle.comicsub.broker-token') {
+    return Promise.reject(new BrokerClientError('CREDENTIAL_SERVICE_INVALID', 'Credential service không hợp lệ.'))
+  }
   return new Promise((resolve, reject) => {
     const child = spawn(nativeCredentialExecutable(), [command], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: { ...process.env, MANGA_SUB_CREDENTIAL_SERVICE: service },
     })
     const output = []
     const errors = []
@@ -209,9 +217,91 @@ async function writeToken(token) {
   return true
 }
 
+function providerCredentialId(providerValue) {
+  const provider = String(providerValue || '').trim().toLowerCase()
+  if (!['gemini', 'openai', 'anthropic', 'openai-compatible'].includes(provider)) {
+    throw new BrokerClientError('BYO_PROVIDER_INVALID', 'Provider không được hỗ trợ.')
+  }
+  return provider
+}
+
+function providerCredentialService(providerValue) {
+  return `com.tienle.mangasub.provider.${providerCredentialId(providerValue)}`
+}
+
+function providerCredentialPath(providerValue) {
+  return dataPath(`provider-key-${providerCredentialId(providerValue)}.bin`)
+}
+
+async function refreshProviderKeyStatus(providerValue) {
+  const provider = providerCredentialId(providerValue)
+  try {
+    if (process.platform === 'darwin') {
+      await runCredentialHelper('status', null, providerCredentialService(provider))
+    } else {
+      fs.accessSync(providerCredentialPath(provider), fs.constants.R_OK)
+    }
+    providerKeyConfiguredCache.set(provider, true)
+  } catch {
+    providerKeyConfiguredCache.set(provider, false)
+  }
+  return providerKeyConfiguredCache.get(provider)
+}
+
+async function readProviderKey(providerValue) {
+  const provider = providerCredentialId(providerValue)
+  try {
+    const value = process.platform === 'darwin'
+      ? await runCredentialHelper('read', null, providerCredentialService(provider))
+      : safeStorage.isEncryptionAvailable()
+        ? safeStorage.decryptString(fs.readFileSync(providerCredentialPath(provider)))
+        : fs.readFileSync(providerCredentialPath(provider), 'utf8')
+    providerKeyConfiguredCache.set(provider, Boolean(value))
+    return value
+  } catch (error) {
+    if (error.code === 'CREDENTIAL_MISSING' || error.code === 'ENOENT') {
+      providerKeyConfiguredCache.set(provider, false)
+      return ''
+    }
+    throw error
+  }
+}
+
+async function writeProviderKey(providerValue, keyValue) {
+  const provider = providerCredentialId(providerValue)
+  const key = String(keyValue || '').trim()
+  if (key.length > 4096 || /[\r\n]/.test(key)) {
+    throw new BrokerClientError('BYO_KEY_INVALID', 'API key không hợp lệ.')
+  }
+  if (!key) {
+    if (process.platform === 'darwin') {
+      await runCredentialHelper('delete', null, providerCredentialService(provider))
+    } else {
+      fs.rmSync(providerCredentialPath(provider), { force: true })
+    }
+    providerKeyConfiguredCache.set(provider, false)
+    return false
+  }
+  if (process.platform === 'darwin') {
+    await runCredentialHelper('write', key, providerCredentialService(provider))
+  } else {
+    const value = safeStorage.isEncryptionAvailable()
+      ? safeStorage.encryptString(key)
+      : Buffer.from(key, 'utf8')
+    fs.writeFileSync(providerCredentialPath(provider), value, { mode: 0o600 })
+  }
+  providerKeyConfiguredCache.set(provider, true)
+  return true
+}
+
 function publicState() {
+  const provider = providerCredentialId(state.settings.byoProvider || 'gemini')
   return {
-    settings: { ...state.settings, tokenConfigured: tokenStatus() },
+    settings: {
+      ...state.settings,
+      tokenConfigured: tokenStatus(),
+      byoKeyConfigured: providerKeyConfiguredCache.get(provider) || false,
+    },
     history: state.history,
     glossaryConsent: state.glossaryConsent,
     glossary: state.glossary,
@@ -339,7 +429,7 @@ async function brokerClient() {
 }
 
 function processingLocus() {
-  return { local: 'local', paired: 'paired', managed: 'managed', byo: 'private-server' }[state.settings.route] || 'managed'
+  return { local: 'local', managed: 'managed', byo: 'private-server' }[state.settings.route] || 'managed'
 }
 
 function readerStatus(payload) { emit('reader:status', payload); commandReader(payload) }
@@ -389,14 +479,14 @@ function batchPayload(snapshot, candidateIds, clientOcr = {}) {
     requestedExecution: {
       locus: processingLocus(),
       profile: state.settings.profile,
-      provider: 'gemini',
-      model: state.settings.model || 'gemini-3.6-flash',
-      credentialRef: state.settings.route === 'byo' ? 'desktop:byo' : undefined,
       allowedFallbacks: [],
     },
     pipeline: { translationMode: 'client-ocr', ocrVersion: 'native-vision', layoutVersion: 'client-geometry', renderVersion: 'source-overlay-v1', promptVersion: 'zh-comic-vi-v1' },
     clientOcr,
-    language: { source: 'zh-Hans', target: state.settings.targetLanguage.startsWith('vi') ? 'vi' : state.settings.targetLanguage.split('-')[0] },
+    language: {
+      source: state.settings.sourceLanguage || 'auto',
+      target: state.settings.targetLanguage.split('-')[0],
+    },
     translationStyle: 'natural-dialogue',
     glossarySnapshot: { id: glossary.id, version: glossary.version, hash: glossary.hash },
     privacyPolicyVersion: 'desktop-v1',
@@ -414,6 +504,18 @@ function nativeOcrExecutable() {
   return app.isPackaged
     ? path.join(process.resourcesPath, 'bin', 'manga-sub-ocr')
     : path.join(__dirname, 'bin', 'manga-sub-ocr')
+}
+
+function nativeTranslationExecutable() {
+  if (process.platform !== 'darwin') {
+    throw new BrokerClientError(
+      'LOCAL_TRANSLATION_UNAVAILABLE',
+      'On-device translation is not yet packaged for this operating system.',
+    )
+  }
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'bin', 'manga-sub-translation')
+    : path.join(__dirname, 'bin', 'manga-sub-translation')
 }
 
 function isPublisherWatermark(text) {
@@ -543,6 +645,88 @@ function recognizeLocalText(asset, language, signal) {
   })
 }
 
+function translateLocalTextPages(pages, signal) {
+  const input = nativeTranslationInput(pages, {
+    sourceLanguage: state.settings.sourceLanguage === 'auto'
+      ? 'zh-Hans'
+      : state.settings.sourceLanguage,
+    targetLanguage: state.settings.targetLanguage,
+  })
+  if (!input.requests.length) {
+    return Promise.resolve(pages.map((page) => ({
+      candidateId: page.candidateId,
+      page: page.ocr.page,
+      overlayRegions: [],
+    })))
+  }
+  return new Promise((resolve, reject) => {
+    const child = spawn(nativeTranslationExecutable(), [], {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    })
+    const output = []
+    const errors = []
+    let outputBytes = 0
+    let errorBytes = 0
+    let settled = false
+    const finish = (error, value) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timeout)
+      signal?.removeEventListener('abort', abort)
+      if (error) reject(error)
+      else resolve(value)
+    }
+    const timeout = setTimeout(() => {
+      child.kill('SIGKILL')
+      finish(new BrokerClientError(
+        'LOCAL_TRANSLATION_TIMEOUT',
+        'Apple Translation took too long, so Manga Sub stopped the batch.',
+      ))
+    }, 90_000)
+    const abort = () => {
+      child.kill('SIGKILL')
+      finish(new BrokerClientError('CANCELLED', 'On-device translation was cancelled.'))
+    }
+    signal?.addEventListener('abort', abort, { once: true })
+    child.stdout.on('data', (chunk) => {
+      outputBytes += chunk.length
+      if (outputBytes > 4 * 1024 * 1024) child.kill('SIGKILL')
+      else output.push(chunk)
+    })
+    child.stderr.on('data', (chunk) => {
+      errorBytes += chunk.length
+      if (errorBytes <= 16_384) errors.push(chunk)
+    })
+    child.on('error', (error) => finish(new BrokerClientError(
+      'LOCAL_TRANSLATION_UNAVAILABLE',
+      error.message,
+    )))
+    child.on('close', (code) => {
+      if (settled) return
+      if (code !== 0) {
+        const message = Buffer.concat(errors).toString('utf8').trim()
+        const errorCode = /not installed|language pack/i.test(message)
+          ? 'LOCAL_LANGUAGE_PACK_REQUIRED'
+          : 'LOCAL_TRANSLATION_FAILED'
+        finish(new BrokerClientError(
+          errorCode,
+          message || `Apple Translation stopped with code ${code}.`,
+        ))
+        return
+      }
+      try {
+        const value = JSON.parse(Buffer.concat(output).toString('utf8'))
+        finish(null, attachNativeTranslations(pages, value))
+      } catch (error) {
+        finish(error instanceof BrokerClientError
+          ? error
+          : new BrokerClientError('LOCAL_TRANSLATION_INVALID', error.message))
+      }
+    })
+    child.stdin.end(JSON.stringify(input))
+  })
+}
+
 function seriesBootstrapPayload(snapshot, observedRegions = []) {
   const title = String(snapshot.title || 'Untitled series').trim().slice(0, 512) || 'Untitled series'
   const seriesId = `series:${sha256(`${snapshot.topFrameOrigin || ''}\n${title}`).slice(0, 48)}`
@@ -623,8 +807,8 @@ async function runBrokerJob(client, snapshot, job, candidate, controller) {
     readerStatus({ type: 'broker-progress', jobId: job.jobId, candidateId: candidate.candidateId, state: 'TRANSLATING' })
     const result = await pollJob(client, job.jobId, candidate.candidateId, controller)
     const receipt = result.modelReceipt || {}
-    if (!receipt.modelMatched || receipt.resolvedModel !== (state.settings.model || 'gemini-3.6-flash')) {
-      throw new BrokerClientError('MODEL_MISMATCH', 'Broker không trả về đúng model bạn đã chọn. Queue đã dừng.')
+    if (!receipt.modelMatched) {
+      throw new BrokerClientError('MODEL_MISMATCH', 'Broker không xác minh được model đã resolve. Queue đã dừng.')
     }
     assertCurrentNavigation(snapshot)
     await recordSeriesContinuity(client, snapshot, result, controller.signal).catch(() => {})
@@ -657,7 +841,11 @@ async function runBrokerBatch(snapshot, selectedIds) {
         const candidate = candidateMap.get(candidateId)
         readerStatus({ type: 'broker-progress', candidateId, state: 'OCR' })
         const asset = await fetchRegisteredAsset(candidate, snapshot, controller.signal)
-        clientOcr[candidateId] = await recognizeLocalText(asset, 'zh-Hans', controller.signal)
+        clientOcr[candidateId] = await recognizeLocalText(
+          asset,
+          state.settings.sourceLanguage || 'auto',
+          controller.signal,
+        )
       }
     }
     await Promise.all(Array.from({ length: Math.min(2, group.length) }, recognizeWorker))
@@ -674,11 +862,179 @@ async function runBrokerBatch(snapshot, selectedIds) {
   }
 }
 
+function targetLanguageName(value) {
+  return {
+    'vi-VN': 'Vietnamese',
+    'en-US': 'English',
+    'fr-FR': 'French',
+    'es-ES': 'Spanish',
+    'de-DE': 'German',
+    'pt-BR': 'Portuguese',
+    'id-ID': 'Indonesian',
+    'ja-JP': 'Japanese',
+    'ko-KR': 'Korean',
+    'zh-CN': 'Simplified Chinese',
+    'zh-TW': 'Traditional Chinese',
+  }[value] || value
+}
+
+async function runLocalBatch(snapshot, selectedIds) {
+  if (snapshot.isTestMode) {
+    throw new BrokerClientError(
+      'SAMPLE_MODE_ONLY',
+      'The sample chapter only tests the UI. Open an HTTP(S) comic page to translate it.',
+    )
+  }
+  const candidateMap = new Map(snapshot.candidates.map((candidate) => [candidate.candidateId, candidate]))
+  for (let offset = 0; offset < selectedIds.length; offset += 50) {
+    assertCurrentNavigation(snapshot)
+    const group = selectedIds.slice(offset, offset + 50)
+    const controller = new AbortController()
+    const operationId = `local:${randomUUID()}`
+    activeJobs.set(operationId, { controller })
+    try {
+      const pages = new Array(group.length)
+      let cursor = 0
+      const recognizeWorker = async () => {
+        while (cursor < group.length && !controller.signal.aborted) {
+          const index = cursor++
+          const candidateId = group[index]
+          const candidate = candidateMap.get(candidateId)
+          readerStatus({ type: 'broker-progress', candidateId, state: 'OCR' })
+          const asset = await fetchRegisteredAsset(candidate, snapshot, controller.signal)
+          pages[index] = {
+            candidateId,
+            ocr: await recognizeLocalText(
+              asset,
+              state.settings.sourceLanguage || 'auto',
+              controller.signal,
+            ),
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(2, group.length) }, recognizeWorker))
+      assertCurrentNavigation(snapshot)
+      readerStatus({ type: 'broker-progress', jobId: operationId, state: 'TRANSLATING_LOCAL' })
+      const results = await translateLocalTextPages(pages, controller.signal)
+      assertCurrentNavigation(snapshot)
+      for (const result of results) {
+        const jobId = `${operationId}:${result.candidateId}`
+        const receipt = {
+          requestedProvider: 'apple-translation',
+          requestedModel: 'on-device',
+          resolvedProvider: 'apple-translation',
+          resolvedModel: 'on-device',
+          providerReportedModel: 'on-device',
+          modelMatched: true,
+          tokenCounts: { input: 0, output: 0 },
+          estimatedCostMicros: 0,
+          completedAt: new Date().toISOString(),
+        }
+        readerStatus({
+          type: 'attach-result',
+          jobId,
+          candidateId: result.candidateId,
+          result,
+          receipt,
+        })
+        emit('app:broker-receipt', {
+          ...receipt,
+          jobId,
+          route: 'local',
+        })
+      }
+    } finally {
+      activeJobs.delete(operationId)
+    }
+  }
+}
+
+async function runByoBatch(snapshot, selectedIds) {
+  if (snapshot.isTestMode) {
+    throw new BrokerClientError('SAMPLE_MODE_ONLY', 'Chương mẫu chỉ để kiểm tra UI; hãy mở URL HTTP(S) để dịch.')
+  }
+  const config = normalizeProviderConfig({
+    provider: state.settings.byoProvider,
+    baseUrl: state.settings.byoBaseUrl,
+    model: state.settings.byoModel,
+  })
+  const key = await readProviderKey(config.provider)
+  if (!key && !isLoopbackCompatible(config)) {
+    throw new BrokerClientError('BYO_KEY_REQUIRED', 'Hãy lưu API key của provider trước khi dịch.')
+  }
+  if (!config.model) throw new BrokerClientError('BYO_MODEL_REQUIRED', 'Hãy refresh và chọn model trước khi dịch.')
+  const candidateMap = new Map(snapshot.candidates.map((candidate) => [candidate.candidateId, candidate]))
+  for (let offset = 0; offset < selectedIds.length; offset += 50) {
+    assertCurrentNavigation(snapshot)
+    const group = selectedIds.slice(offset, offset + 50)
+    const controller = new AbortController()
+    const operationId = `byo:${randomUUID()}`
+    activeJobs.set(operationId, { controller })
+    try {
+      const clientOcr = {}
+      let cursor = 0
+      const recognizeWorker = async () => {
+        while (cursor < group.length && !controller.signal.aborted) {
+          const candidateId = group[cursor++]
+          const candidate = candidateMap.get(candidateId)
+          readerStatus({ type: 'broker-progress', candidateId, state: 'OCR' })
+          const asset = await fetchRegisteredAsset(candidate, snapshot, controller.signal)
+          clientOcr[candidateId] = await recognizeLocalText(
+            asset,
+            state.settings.sourceLanguage || 'auto',
+            controller.signal,
+          )
+        }
+      }
+      await Promise.all(Array.from({ length: Math.min(2, group.length) }, recognizeWorker))
+      assertCurrentNavigation(snapshot)
+      readerStatus({ type: 'broker-progress', jobId: operationId, state: 'TRANSLATING' })
+      const results = await translateOcrPages(config, key, group.map((candidateId) => ({
+        candidateId,
+        ocr: clientOcr[candidateId],
+      })), {
+        targetLanguage: targetLanguageName(state.settings.targetLanguage),
+        glossary: state.glossary,
+        signal: controller.signal,
+      })
+      assertCurrentNavigation(snapshot)
+      for (const result of results) {
+        const jobId = `${operationId}:${result.candidateId}`
+        const receipt = {
+          requestedProvider: config.provider,
+          requestedModel: config.model,
+          resolvedProvider: config.provider,
+          resolvedModel: config.model,
+          providerReportedModel: config.model,
+          modelMatched: true,
+          tokenCounts: { input: 0, output: 0 },
+          estimatedCostMicros: 0,
+          completedAt: new Date().toISOString(),
+        }
+        readerStatus({
+          type: 'attach-result',
+          jobId,
+          candidateId: result.candidateId,
+          result,
+          receipt,
+        })
+        emit('app:broker-receipt', {
+          ...receipt,
+          jobId,
+          route: 'byo',
+        })
+      }
+    } finally {
+      activeJobs.delete(operationId)
+    }
+  }
+}
+
 async function cancelActiveJobs() {
   const work = [...activeJobs.entries()]
   for (const [jobId, entry] of work) {
     entry.controller.abort()
-    entry.client.cancel(jobId).catch(() => {})
+    entry.client?.cancel?.(jobId).catch(() => {})
   }
   activeJobs.clear()
   readerStatus({ type: 'broker-cancelled' })
@@ -725,19 +1081,54 @@ ipcMain.handle('app:open-sample', () => {
   readerView.webContents.loadFile(path.join(__dirname, 'app', 'sample.html'))
   return true
 })
-ipcMain.handle('app:save-settings', (_event, patch) => {
-  const allowedRoutes = new Set(['ask', 'local', 'paired', 'managed', 'byo'])
+ipcMain.handle('app:save-settings', async (_event, patch) => {
+  const allowedRoutes = new Set(['ask', 'local', 'managed', 'byo'])
+  const previousProvider = state.settings.byoProvider
   const next = { ...state.settings, ...patch }
+  if (!['auto', 'zh-Hans', 'zh-Hant', 'ja', 'ko', 'en'].includes(next.sourceLanguage)) {
+    next.sourceLanguage = 'auto'
+  }
+  if (!['vi-VN', 'en-US', 'fr-FR', 'es-ES', 'de-DE', 'pt-BR', 'id-ID', 'ja-JP', 'ko-KR', 'zh-CN', 'zh-TW'].includes(next.targetLanguage)) {
+    next.targetLanguage = 'vi-VN'
+  }
   if (!allowedRoutes.has(next.route)) next.route = 'ask'
   if (!['fast', 'balanced', 'quality'].includes(next.profile)) next.profile = 'balanced'
+  next.byoProvider = providerCredentialId(next.byoProvider || 'gemini')
+  next.byoModel = String(next.byoModel || '').trim().slice(0, 256)
+  if (next.byoProvider === 'openai-compatible') {
+    next.byoBaseUrl = normalizeProviderConfig({
+      provider: next.byoProvider,
+      baseUrl: next.byoBaseUrl,
+    }).baseUrl
+  }
   if (typeof next.brokerEndpoint === 'string') next.brokerEndpoint = normalizeEndpoint(next.brokerEndpoint || 'https://comic-be.dep.app')
   if (typeof next.serverUrl === 'string' && next.serverUrl.trim()) next.serverUrl = safeUrl(next.serverUrl)
   state.settings = next
   saveState()
+  if (next.byoProvider !== previousProvider) {
+    await refreshProviderKeyStatus(next.byoProvider)
+  }
   emit('app:settings', publicState().settings)
   return publicState().settings
 })
 ipcMain.handle('app:set-token', async (_event, token) => ({ tokenConfigured: await writeToken(token) }))
+ipcMain.handle('app:set-provider-key', async (_event, provider, key) => ({
+  provider: providerCredentialId(provider),
+  keyConfigured: await writeProviderKey(provider, key),
+}))
+ipcMain.handle('app:list-provider-models', async (_event, configValue) => {
+  const config = normalizeProviderConfig(configValue)
+  const key = await readProviderKey(config.provider)
+  if (!key && !isLoopbackCompatible(config)) {
+    throw new BrokerClientError('BYO_KEY_REQUIRED', 'Hãy lưu API key trước khi refresh model.')
+  }
+  const models = await listProviderModels(config, key)
+  return {
+    models,
+    recommended: recommendModel(models, config.provider, state.settings.profile),
+    fetchedAt: new Date().toISOString(),
+  }
+})
 ipcMain.handle('app:set-private', (_event, enabled) => {
   privateSession = Boolean(enabled)
   createReader({ url: activeReaderUrl, isPrivate: privateSession })
@@ -788,7 +1179,20 @@ ipcMain.on('reader:status', (event, payload) => {
       readerStatus({ type: 'broker-failure', code: 'SNAPSHOT_MISSING', message: 'Không có snapshot hợp lệ. Hãy quét lại trang.' })
       return
     }
-    runBrokerBatch(snapshot, payload.candidateIds || []).catch((error) => {
+    const run = {
+      local: runLocalBatch,
+      managed: runBrokerBatch,
+      byo: runByoBatch,
+    }[state.settings.route]
+    if (!run) {
+      readerStatus({
+        type: 'broker-failure',
+        code: 'ROUTE_UNAVAILABLE',
+        message: 'This translation route is not available in this build. Choose On this Mac, Manga Sub Cloud, or Your API key.',
+      })
+      return
+    }
+    run(snapshot, payload.candidateIds || []).catch((error) => {
       readerStatus({ type: 'broker-failure', code: error.code || 'BROKER_FAILURE', message: error.message })
     })
   }
@@ -800,6 +1204,8 @@ ipcMain.on('reader:status', (event, payload) => {
 app.whenReady().then(() => {
   createWindow()
   void refreshTokenStatus().then(() => emit('app:settings', publicState().settings))
+  void refreshProviderKeyStatus(state.settings.byoProvider || 'gemini')
+    .then(() => emit('app:settings', publicState().settings))
 })
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })

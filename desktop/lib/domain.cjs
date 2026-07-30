@@ -8,6 +8,9 @@ const DEFAULT_SETTINGS = Object.freeze({
   brokerEndpoint: 'https://comic-be.dep.app',
   serverUrl: '',
   model: 'gemini-3.6-flash',
+  byoProvider: 'gemini',
+  byoBaseUrl: 'https://api.deepseek.com/v1',
+  byoModel: '',
   privateMode: false,
 })
 
@@ -36,6 +39,18 @@ function estimateBatch(count, route) {
 
 function migrateSettings(saved = {}) {
   const next = { ...DEFAULT_SETTINGS, ...saved }
+  if (!['auto', 'zh-Hans', 'zh-Hant', 'ja', 'ko', 'en'].includes(next.sourceLanguage)) {
+    next.sourceLanguage = DEFAULT_SETTINGS.sourceLanguage
+  }
+  if (!['vi-VN', 'en-US', 'fr-FR', 'es-ES', 'de-DE', 'pt-BR', 'id-ID', 'ja-JP', 'ko-KR', 'zh-CN', 'zh-TW'].includes(next.targetLanguage)) {
+    next.targetLanguage = DEFAULT_SETTINGS.targetLanguage
+  }
+  if (!['gemini', 'openai', 'anthropic', 'openai-compatible'].includes(next.byoProvider)) {
+    next.byoProvider = DEFAULT_SETTINGS.byoProvider
+  }
+  if (!['ask', 'local', 'managed', 'byo'].includes(next.route)) {
+    next.route = 'ask'
+  }
   if (!saved.brokerEndpoint || saved.brokerEndpoint === 'http://127.0.0.1:4100') {
     next.brokerEndpoint = DEFAULT_SETTINGS.brokerEndpoint
   }
@@ -51,11 +66,10 @@ function receiptFor({ route = 'managed', profile = 'balanced', model = 'gemini-3
   const routeLabel = {
     managed: 'Manga Sub Cloud',
     local: 'This computer',
-    paired: 'My computer',
     byo: 'My computer + external AI',
     ask: 'Route not chosen',
   }[route] || 'Route not chosen'
-  const imageDestination = route === 'managed' ? 'Manga Sub Cloud' : route === 'paired' || route === 'byo' ? 'My computer' : 'This device'
+  const imageDestination = route === 'managed' ? 'Manga Sub Cloud' : route === 'byo' ? 'This computer' : 'This device'
   const textDestination = route === 'managed' ? 'Manga Sub Cloud' : route === 'byo' ? 'External AI through your API key' : imageDestination
   return {
     id: `cs_${Math.random().toString(36).slice(2, 10)}`,

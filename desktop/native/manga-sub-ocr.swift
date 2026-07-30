@@ -50,7 +50,12 @@ default: recognitionLanguage = language
 let request = VNRecognizeTextRequest()
 request.recognitionLevel = .accurate
 request.usesLanguageCorrection = true
-request.recognitionLanguages = [recognitionLanguage]
+if language == "auto" {
+    request.automaticallyDetectsLanguage = true
+    request.recognitionLanguages = ["zh-Hans", "zh-Hant", "ja-JP", "ko-KR", "en-US"]
+} else {
+    request.recognitionLanguages = [recognitionLanguage]
+}
 request.minimumTextHeight = 0.004
 
 do {
