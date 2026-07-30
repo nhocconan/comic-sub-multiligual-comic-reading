@@ -543,6 +543,16 @@ private struct OnDeviceOCRPage {
     var regions: [BrokerRegion]
 }
 
+private struct OnDevicePreparedPage {
+    let candidate: WebCandidate
+    var recognized: OnDeviceOCRPage
+}
+
+private struct OnDevicePendingRegion {
+    let pageIndex: Int
+    let regionIndex: Int
+}
+
 private final class OnDeviceComicOCR {
     func recognize(_ image: AcquiredImage, sourceLanguage: String) async throws -> OnDeviceOCRPage {
         guard let source = CGImageSourceCreateWithData(image.bytes as CFData, nil),
@@ -1101,8 +1111,8 @@ private enum ReaderBridge {
         const sourceLength = Math.max(1, [...(region.source || '')].length);
         const targetLength = [...(region.translation || '')].length;
         const lengthRatio = targetLength / sourceLength;
-        const widthFactor = expandForTranslation ? Math.min(1.85, 1 + Math.max(0, lengthRatio - 1) * .22) : 1;
-        const heightFactor = expandForTranslation ? Math.min(2.8, 1 + Math.max(0, lengthRatio - 1) * .48) : 1;
+        const widthFactor = expandForTranslation ? Math.min(1.45, 1 + Math.max(0, lengthRatio - 1) * .12) : 1;
+        const heightFactor = expandForTranslation ? Math.min(2, 1 + Math.max(0, lengthRatio - 1) * .25) : 1;
         const width = Math.min(rect.width, base.width * widthFactor);
         const height = Math.min(rect.height, base.height * heightFactor);
         const centerX = base.x + base.width / 2;
@@ -1117,9 +1127,9 @@ private enum ReaderBridge {
         });
       };
       const fitText = node => {
-        let size = Math.min(18, Math.max(12, node.clientHeight * .42));
+        let size = Math.min(13, Math.max(10, node.clientHeight * .3));
         node.style.fontSize = `${size}px`;
-        while (size > 9.5 && (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth)) {
+        while (size > 9 && (node.scrollHeight > node.clientHeight || node.scrollWidth > node.clientWidth)) {
           size -= .5; node.style.fontSize = `${size}px`;
         }
       };
@@ -1638,6 +1648,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             ($0.sourceTerm.trimmingCharacters(in: .whitespacesAndNewlines), $0.targetTerm)
         }, uniquingKeysWith: { current, _ in current })
 
+        var preparedPages: [OnDevicePreparedPage] = []
         for (offset, candidate) in selected.enumerated() {
             try Task.checkCancellation()
             guard navigationID == expectedNavigationID else { throw BrokerError.cancelled }
@@ -1664,30 +1675,46 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                 continue
             }
 
-            var pendingIndexes: [Int] = []
-            var pendingTexts: [String] = []
             for index in recognized.regions.indices {
                 let source = recognized.regions[index].source.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let established = exactTerms[source] {
                     recognized.regions[index].translation = established
-                } else {
-                    pendingIndexes.append(index)
-                    pendingTexts.append(source)
                 }
             }
-            if !pendingTexts.isEmpty {
-                let translated = try await translateOnDevice(pendingTexts)
-                guard translated.count == pendingIndexes.count else {
-                    throw BrokerError.request(uiText(
-                        "Apple Translation returned fewer text regions than expected.",
-                        "Apple Translation trả thiếu vùng văn bản."
-                    ))
-                }
-                for (translatedIndex, regionIndex) in pendingIndexes.enumerated() {
-                    recognized.regions[regionIndex].translation = translated[translatedIndex]
-                }
-            }
+            preparedPages.append(OnDevicePreparedPage(candidate: candidate, recognized: recognized))
+        }
 
+        var pendingLocations: [OnDevicePendingRegion] = []
+        var pendingTexts: [String] = []
+        for pageIndex in preparedPages.indices {
+            for regionIndex in preparedPages[pageIndex].recognized.regions.indices
+            where preparedPages[pageIndex].recognized.regions[regionIndex].translation.isEmpty {
+                pendingLocations.append(OnDevicePendingRegion(pageIndex: pageIndex, regionIndex: regionIndex))
+                pendingTexts.append(preparedPages[pageIndex].recognized.regions[regionIndex].source)
+            }
+        }
+        if !pendingTexts.isEmpty {
+            updateRouteStatus(uiText(
+                "Translating \(pendingTexts.count) text regions from \(preparedPages.count) images in one on-device batch…",
+                "Đang dịch \(pendingTexts.count) vùng chữ từ \(preparedPages.count) ảnh trong một batch trên thiết bị…"
+            ))
+            let translated = try await translateOnDevice(pendingTexts)
+            guard translated.count == pendingLocations.count else {
+                throw BrokerError.request(uiText(
+                    "Apple Translation returned fewer text regions than expected.",
+                    "Apple Translation trả thiếu vùng văn bản."
+                ))
+            }
+            for (translationIndex, location) in pendingLocations.enumerated() {
+                preparedPages[location.pageIndex].recognized.regions[location.regionIndex].translation = translated[translationIndex]
+            }
+        }
+
+        for (pageIndex, prepared) in preparedPages.enumerated() {
+            try Task.checkCancellation()
+            guard navigationID == expectedNavigationID else { throw BrokerError.cancelled }
+            let recognized = prepared.recognized
+            let candidate = prepared.candidate
             let result = BrokerResult(
                 jobId: "on-device-\(UUID().uuidString)",
                 candidateId: candidate.id,
@@ -1709,8 +1736,8 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
                 SeriesTerm(sourceTerm: $0.source, targetTerm: $0.translation, confidence: $0.confidence ?? 0.8)
             }, into: series)
             updateRouteStatus(uiText(
-                "Translated \(offset + 1)/\(selected.count) entirely on device · Apple Vision + Translation",
-                "Đã dịch \(offset + 1)/\(selected.count) hoàn toàn trên thiết bị · Apple Vision + Translation"
+                "Translated \(pageIndex + 1)/\(preparedPages.count) entirely on device · Apple Vision + Translation",
+                "Đã dịch \(pageIndex + 1)/\(preparedPages.count) hoàn toàn trên thiết bị · Apple Vision + Translation"
             ))
         }
     }
@@ -2117,6 +2144,19 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
         guard !texts.isEmpty else { return [] }
         #if canImport(Translation) && canImport(SwiftUI)
         guard #available(iOS 18.0, *) else { throw BrokerError.request(uiText("Apple Translation requires iOS 18 or later.", "Apple Translation cần iOS 18 trở lên.")) }
+        if #available(iOS 26.0, *) {
+            let session = TranslationSession(
+                installedSource: Locale.Language(identifier: settings.sourceLanguage),
+                target: Locale.Language(identifier: settings.targetLanguage)
+            )
+            let requests = texts.enumerated().map {
+                TranslationSession.Request(sourceText: $0.element, clientIdentifier: String($0.offset))
+            }
+            let responses = try await session.translations(from: requests)
+            return responses.sorted {
+                (Int($0.clientIdentifier ?? "0") ?? 0) < (Int($1.clientIdentifier ?? "0") ?? 0)
+            }.map(\.targetText)
+        }
         return try await withCheckedThrowingContinuation { continuation in
             let view = ClientRegionTranslationView(source: settings.sourceLanguage, target: settings.targetLanguage, texts: texts) { [weak self] result in
                 self?.translationHost?.dismiss(animated: true)

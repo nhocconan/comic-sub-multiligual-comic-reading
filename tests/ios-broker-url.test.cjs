@@ -94,8 +94,19 @@ test('CJK on-device OCR refines suspicious fast results and rejects Latin garbag
   assert.match(source, /const fitText = node =>/)
   assert.match(source, /if \(!semanticOnly\) fitText\(node\)/)
   assert.match(source, /const lengthRatio = targetLength \/ sourceLength/)
-  assert.match(source, /Math\.min\(2\.8, 1 \+ Math\.max\(0, lengthRatio - 1\) \* \.48\)/)
-  assert.match(source, /while \(size > 9\.5/)
+  assert.match(source, /Math\.min\(2, 1 \+ Math\.max\(0, lengthRatio - 1\) \* \.25\)/)
+  assert.match(source, /while \(size > 9/)
+})
+
+test('iOS 26 translates every local page in one direct batch without a modal', () => {
+  assert.match(source, /var preparedPages: \[OnDevicePreparedPage\] = \[\]/)
+  assert.match(source, /let translated = try await translateOnDevice\(pendingTexts\)/)
+  assert.match(source, /if #available\(iOS 26\.0, \*\)/)
+  assert.match(source, /TranslationSession\(\s*installedSource:/)
+  const localPipeline = source.match(
+    /private func translateFullyOnDevice[\s\S]*?private func routeContract/,
+  )?.[0] ?? ''
+  assert.equal((localPipeline.match(/translateOnDevice\(pendingTexts\)/g) ?? []).length, 1)
 })
 
 test('Safe Automatic prefers an installed Apple language pack before broker credentials', () => {
