@@ -9,6 +9,10 @@ const sourceExtensionPath = resolve(root, 'extension')
 const targetUrl =
   process.env.BONG_BONG_LIVE_URL ||
   'https://www.baozimh.com/comic/chapter/yaoshenji-taxuedongman/0_765.html'
+const apiEndpoint =
+  process.env.BONG_BONG_API_ENDPOINT ||
+  'http://127.0.0.1:4000/api/v1'
+const authKey = process.env.BONG_BONG_AUTH_KEY || ''
 const provider = process.env.BONG_BONG_PROVIDER || 'gemini'
 const model =
   process.env.BONG_BONG_MODEL ||
@@ -31,6 +35,10 @@ async function main() {
     'https://*.baozimh.com/*',
     'https://*.bzcdn.net/*',
   )
+  const apiUrl = new URL(apiEndpoint)
+  manifest.host_permissions.push(
+    `${apiUrl.protocol}//${apiUrl.hostname}/*`,
+  )
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 
   context = await chromium.launchPersistentContext(profile, {
@@ -46,6 +54,15 @@ async function main() {
   let worker = context.serviceWorkers()[0]
   if (!worker) worker = await context.waitForEvent('serviceworker')
   const extensionId = new URL(worker.url()).host
+  await worker.evaluate(
+    ({ endpoint, key }) => chrome.storage.local.set({
+      bongBongSettings: {
+        endpoint,
+        authKey: key,
+      },
+    }),
+    { endpoint: apiEndpoint, key: authKey },
+  )
   const reader = await context.newPage()
   await reader.goto(targetUrl, { waitUntil: 'domcontentloaded', timeout: 60_000 })
   const pageLocator = reader.locator('ul.comic-contain amp-img.comic-contain__item')
@@ -87,7 +104,29 @@ async function main() {
 
   const popup = await context.newPage()
   await popup.goto(`chrome-extension://${extensionId}/popup.html`)
-  await popup.waitForSelector('#health-dot[data-tone="ready"]', { timeout: 30_000 })
+  await popup.waitForFunction(
+    () => !document.querySelector('#refresh-button')?.disabled,
+    undefined,
+    { timeout: 30_000 },
+  )
+  await popup.locator('#refresh-button').click()
+  try {
+    await popup.waitForSelector('#health-dot[data-tone="ready"]', { timeout: 30_000 })
+  } catch (error) {
+    console.error('Remote health diagnostic', await popup.evaluate(async (endpoint) => {
+      const url = new URL(endpoint)
+      const originPattern = `${url.protocol}//${url.hostname}/*`
+      return {
+        tone: document.querySelector('#health-dot')?.dataset?.tone,
+        health: document.querySelector('#health-state')?.textContent?.trim(),
+        toast: document.querySelector('#toast')?.textContent?.trim(),
+        endpointPermission: await chrome.permissions.contains({
+          origins: [originPattern],
+        }),
+      }
+    }, apiEndpoint))
+    throw error
+  }
   await popup.locator('#settings').evaluate((details) => {
     details.open = true
   })
@@ -190,7 +229,11 @@ async function main() {
   const screenshotPath = join(resultDirectory, 'chapter-765-page-5.png')
   await reader.screenshot({ path: screenshotPath, fullPage: false })
 
-  const sceneResponse = await fetch('http://127.0.0.1:4000/api/v1/scene.json')
+  const sceneResponse = await fetch(`${apiEndpoint}/scene.json`, {
+    headers: authKey
+      ? { Authorization: `Bearer ${authKey}` }
+      : {},
+  })
   assert.equal(sceneResponse.ok, true)
   const scenePayload = await sceneResponse.json()
   const scene = scenePayload.scene || scenePayload

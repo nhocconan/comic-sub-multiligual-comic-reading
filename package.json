@@ -1,16 +1,21 @@
 {
   "name": "comic-sub-manga-translator",
-  "version": "0.2.0",
+  "version": "0.2.3",
   "private": true,
-  "description": "Local-first, website-agnostic comic translation extension powered by Koharu.",
+  "description": "Cross-platform embedded comic reader and translation system powered by Koharu.",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.cjs",
     "test:manifest": "node tests/manifest-check.mjs",
     "test:runtime": "bash -n start.command stop.command scripts/*.sh && docker compose -f docker-compose.yml config --quiet && BONG_BONG_DOMAIN=koharu.example.com BONG_BONG_AUTH_KEY=test-key docker compose -f deploy/remote/docker-compose.yml config --quiet",
+    "test:platform": "npm test --prefix packages/protocol && npm test --prefix packages/domain && npm test --prefix services/broker && npm test --prefix desktop",
+    "broker:start": "npm start --prefix services/broker",
+    "desktop:start": "npm start --prefix desktop",
+    "desktop:build": "npm run build --prefix desktop",
+    "android:build": "cd android && ./gradlew --no-daemon test assembleDebug --console=plain",
     "e2e": "node tests/e2e.mjs",
     "smoke:live": "BONG_BONG_LIVE_URL=https://www.baozimh.com/comic/chapter/yaoshenji-taxuedongman/0_764.html node tests/e2e.mjs",
-    "verify": "npm run test && npm run test:manifest && npm run test:runtime && npm run e2e"
+    "verify": "npm run test && npm run test:manifest && npm run test:runtime && npm run test:platform && npm run e2e"
   },
   "devDependencies": {
     "playwright": "^1.60.0",

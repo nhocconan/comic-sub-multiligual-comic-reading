@@ -84,11 +84,23 @@ chmod 600 private/auth-keys.env
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-The production gateway joins the external `traefik-network`; Koharu itself has
-no published host port. Traefik terminates TLS, and the internal Caddy gateway
-accepts any of the five independent Bearer keys before proxying to Koharu.
+This now builds and starts both Koharu and Comic Sub Broker. The production
+gateway joins the external `traefik-network`; neither service publishes a host
+port. Traefik terminates TLS, and the internal Caddy gateway accepts any of the
+five independent Bearer keys. `/v1/*` and `/health` go to Broker; existing
+`/api/v1/*` requests continue to Koharu.
 `docker-compose.prod.yml` and the entire `private/` directory are ignored, while
 `docker-compose.prod.yml.sample` remains tracked as the deployment template.
+
+Verify both routes after deploy:
+
+```bash
+set -a; source .env; set +a
+curl -fsS -H "Authorization: Bearer ${BONG_BONG_AUTH_KEY}" \
+  https://comic-be.dep.app/health
+curl -fsS -H "Authorization: Bearer ${BONG_BONG_AUTH_KEY}" \
+  https://comic-be.dep.app/api/v1/meta
+```
 
 ## 4. Configure Comic Sub
 
@@ -104,6 +116,13 @@ The key is stored in WebExtension local storage and added only by the background
 worker to Koharu API requests. It is not sent to comic websites or content
 scripts. The same endpoint and key work in desktop Chrome and Safari on iPhone
 or iPad.
+
+Native apps use:
+
+```text
+Broker:   https://comic-be.dep.app
+Auth key: the same Bearer key, stored in Keychain/OS credential storage
+```
 
 ## Operational notes
 

@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'" />
+    <title>Comic Sub</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div class="brand"><span class="brand-mark">C</span><span>Comic Sub</span><em>DESKTOP</em></div>
+        <form id="address-form" class="address" aria-label="Mở chương truyện">
+          <button type="button" id="back-button" title="Quay lại">←</button>
+          <input id="address-input" autocomplete="off" spellcheck="false" placeholder="Dán link chương truyện…" />
+          <button class="open-button" type="submit">Open</button>
+        </form>
+        <button class="private-toggle" id="private-toggle" type="button"><span class="private-dot"></span>Private session</button>
+      </header>
+
+      <aside class="sidebar">
+        <nav class="nav" aria-label="Điều hướng">
+          <button class="nav-item active" data-tab="reader"><span>◉</span>Read</button>
+          <button class="nav-item" data-tab="library"><span>▤</span>Library</button>
+          <button class="nav-item" data-tab="settings"><span>◌</span>Settings</button>
+        </nav>
+        <section id="reader-controls" class="reader-controls">
+          <p class="eyebrow">TRANSLATION</p>
+          <div class="language-line"><span id="language-label">Chinese → Vietnamese</span><button id="change-route">Change</button></div>
+          <button id="translate-current" class="primary-action">Dịch phần đang đọc <span>⌁</span></button>
+          <button id="translate-all" class="secondary-action">Dịch tất cả ảnh đã tải <span id="candidate-count">—</span></button>
+          <button id="cancel-translation" class="text-action cancel-action">Dừng queue hiện tại</button>
+          <div class="queue-status" id="queue-status"><span class="pulse"></span><span>Đang chờ trang truyện…</span></div>
+
+          <div id="route-chooser" class="route-chooser" hidden>
+            <p class="eyebrow">WHERE IT RUNS</p>
+            <h2>Dịch chương này ở đâu?</h2>
+            <button data-route="local"><b>Trên máy này</b><small>Riêng tư · cần tải engine</small></button>
+            <button data-route="paired"><b>Máy tính của tôi</b><small>Riêng tư · quét QR để kết nối</small></button>
+            <button data-route="managed" class="route-cloud"><b>Comic Sub cloud</b><small>Nhanh nhất · dùng thử không cần tài khoản</small></button>
+            <p class="route-note">Luôn xem được chính xác dữ liệu đi đâu trước khi chạy.</p>
+          </div>
+
+          <section class="continuity" id="continuity-card" hidden>
+            <p class="eyebrow">SERIES MEMORY</p>
+            <h2>Dùng tên nhân vật quen thuộc?</h2>
+            <p>Comic Sub có thể tra tên series và ngôn ngữ bạn chọn từ nguồn đã duyệt. Không gửi ảnh, OCR, URL chương hay lịch sử đọc.</p>
+            <div><button id="lookup-accept" class="mini-primary">Dùng nguồn tra cứu</button><button id="lookup-decline">Chỉ dùng trên máy</button></div>
+          </section>
+        </section>
+        <footer class="side-footer"><span class="health-dot"></span><span id="route-summary">Chưa chọn route</span></footer>
+      </aside>
+
+      <section id="reader-workspace" class="reader-workspace">
+        <div id="reader-frame" class="reader-frame" aria-label="Trình đọc truyện nhúng"></div>
+        <aside class="inspector">
+          <div class="inspector-heading"><p class="eyebrow">THIS SESSION</p><span class="live-dot"></span></div>
+          <h1 id="session-title">Một trang, một nhịp đọc.</h1>
+          <p id="session-detail">Dán link hoặc mở chương mẫu để bắt đầu.</p>
+          <div class="route-chip" id="route-chip">VI · Chưa chọn route</div>
+          <dl class="mini-metrics">
+            <div><dt>SNAPSHOT</dt><dd id="snapshot-value">—</dd></div>
+            <div><dt>QUEUE</dt><dd id="queue-value">Idle</dd></div>
+            <div><dt>HISTORY</dt><dd id="history-value">Local</dd></div>
+          </dl>
+          <section class="receipt" id="receipt-card">
+            <div class="receipt-title"><span>JOB RECEIPT</span><button id="copy-diagnostic" disabled>Copy ID</button></div>
+            <p>Chưa có job nào. Khi dịch, Comic Sub sẽ ghi rõ route thực tế và nơi dữ liệu được xử lý.</p>
+          </section>
+          <button class="open-sample" id="open-sample">Mở sample test được cấp phép →</button>
+        </aside>
+      </section>
+
+      <section id="library-workspace" class="panel-workspace" hidden>
+        <div class="panel-heading"><p class="eyebrow">YOUR LIBRARY</p><h1>Đọc tiếp, đúng nơi bạn dừng lại.</h1><p>Lịch sử nằm trên thiết bị này. Private session không được ghi lại.</p></div>
+        <div class="library-list" id="library-list"></div>
+      </section>
+
+      <section id="settings-workspace" class="panel-workspace settings-workspace" hidden>
+        <div class="panel-heading"><p class="eyebrow">PREFERENCES</p><h1>Chất lượng, ngôn ngữ và quyền riêng tư.</h1><p>Model và token chỉ hiện khi bạn chủ động mở phần nâng cao.</p></div>
+        <div class="settings-grid">
+          <section class="settings-section"><h2>Reader</h2>
+            <label>Ngôn ngữ đích<select id="target-language"><option value="vi-VN">Vietnamese</option><option value="en-US">English</option><option value="fr-FR">French</option></select></label>
+            <label>Định dạng dịch<select id="profile"><option value="fast">Fast</option><option value="balanced">Balanced</option><option value="quality">Quality</option></select></label>
+          </section>
+          <section class="settings-section"><h2>Translation location</h2>
+            <label>Route mặc định<select id="default-route"><option value="ask">Ask each time</option><option value="local">On this computer</option><option value="paired">My computer</option><option value="managed">Comic Sub cloud</option><option value="byo">My computer + external AI</option></select></label>
+            <p class="hint">Auto chỉ dùng route bạn đã duyệt. App không tự chuyển sang cloud.</p>
+          </section>
+          <section class="settings-section"><h2>Broker connection</h2>
+            <label>Broker endpoint<input id="broker-endpoint" placeholder="http://127.0.0.1:4100" /></label>
+            <label>Broker token <input id="provider-token" type="password" placeholder="Dán token để cập nhật" /></label>
+            <button id="save-token" class="text-action">Lưu token vào credential store</button>
+            <p class="hint" id="token-status">Token không được đồng bộ giữa thiết bị.</p>
+          </section>
+          <section class="settings-section advanced"><h2>Advanced</h2>
+            <label>Model<input id="model-id" value="gemini-3.6-flash" /></label>
+            <p class="hint">Balanced mặc định dùng Gemini 3.6 Flash. Chỉ pin model khi bạn biết lý do.</p>
+          </section>
+          <section class="settings-section glossary-editor"><h2>Names used in this series</h2>
+            <div id="glossary-list" class="glossary-list"></div>
+            <form id="add-term-form"><input id="term-input" placeholder="Tên gốc = Tên Việt" /><button>Thêm</button></form>
+          </section>
+        </div>
+      </section>
+
+      <section id="migration-banner" class="migration-banner" hidden>
+        <p class="eyebrow">ENGINE UPDATE</p><h2>A newer Balanced engine is available</h2><p>Thiết lập cũ dùng Gemini 3.5 Flash. Trang đã lưu không thay đổi; bản dịch mới có thể đọc khác.</p>
+        <div><button data-choice="recommended" class="mini-primary">Dùng Balanced mới</button><button data-choice="keep">Giữ Gemini 3.5</button><button data-choice="later">Để sau</button></div>
+      </section>
+      <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    </main>
+    <script src="renderer.js"></script>
+  </body>
+</html>

@@ -38,10 +38,24 @@ assert.doesNotMatch(popup, /\son[a-z]+\s*=/i, 'popup must not use inline event h
 assert.match(popup, /id="auth-key"[\s\S]*type="password"/, 'remote auth must use a password field')
 
 const popupSource = await readFile(resolve(extension, 'popup.js'), 'utf8')
+const contentSource = await readFile(resolve(extension, 'content.js'), 'utf8')
 const contentSettingsBody =
   popupSource.match(/function contentSettings\(settings\)\s*\{([\s\S]*?)\n\}/)?.[1] || ''
 assert.ok(contentSettingsBody, 'popup must explicitly sanitize settings sent to content scripts')
 assert.doesNotMatch(contentSettingsBody, /authKey/, 'auth key must never enter content scripts')
+assert.match(
+  popupSource,
+  /type:\s*'SCAN_PAGE',\s*scope:\s*'all'/,
+  'Dịch trang này must select stable translate-all ordering before scanning',
+)
+const pageHideHandler =
+  contentSource.match(/addEventListener\(\s*'pagehide',[\s\S]*?\{ once: true \},\s*\)/)?.[0] || ''
+assert.ok(pageHideHandler, 'content script must handle pagehide cleanup')
+assert.doesNotMatch(
+  pageHideHandler,
+  /CANCEL_TRANSLATION/,
+  'temporary Safari page hiding must not cancel an in-flight translation',
+)
 
 const backgroundSource = await readFile(resolve(extension, 'background.js'), 'utf8')
 assert.match(

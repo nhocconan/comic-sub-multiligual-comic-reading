@@ -2,10 +2,20 @@
 	@unauthorized expression `{header.Authorization} != "Bearer {$BONG_BONG_AUTH_KEY_1}" && {header.Authorization} != "Bearer {$BONG_BONG_AUTH_KEY_2}" && {header.Authorization} != "Bearer {$BONG_BONG_AUTH_KEY_3}" && {header.Authorization} != "Bearer {$BONG_BONG_AUTH_KEY_4}" && {header.Authorization} != "Bearer {$BONG_BONG_AUTH_KEY_5}"`
 	respond @unauthorized 401
 
-	reverse_proxy koharu:4000 {
-		transport http {
-			read_timeout 10m
-			write_timeout 10m
+	handle /v1/* {
+		reverse_proxy broker:4100
+	}
+
+	handle /health {
+		reverse_proxy broker:4100
+	}
+
+	handle {
+		reverse_proxy koharu:4000 {
+			transport http {
+				read_timeout 10m
+				write_timeout 10m
+			}
 		}
 	}
 }

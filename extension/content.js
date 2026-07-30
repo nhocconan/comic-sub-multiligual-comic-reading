@@ -229,7 +229,7 @@
     else if (counts.processing > 0) {
       const active = candidates.get(activeCandidateId)
       const progress = active && active.progress ? ` · ${active.progress}%` : ''
-      text = `Đang dịch ${counts.done + 1}/${counts.total}${progress}`
+      text = `Đã xong ${counts.done}/${counts.total} · đang dịch${progress}`
     } else if (counts.failed > 0) {
       text = `${counts.done}/${counts.total} · lỗi ${counts.failed}`
     } else if (counts.blocked > 0 && counts.done === 0) {
@@ -478,10 +478,20 @@
       const left = candidates.get(leftId)
       const right = candidates.get(rightId)
       const leftPriority = left
-        ? core.readingPriorityIndex(left.index, total, anchor)
+        ? core.translationPriorityIndex(
+            left.index,
+            total,
+            anchor,
+            translationScope,
+          )
         : Infinity
       const rightPriority = right
-        ? core.readingPriorityIndex(right.index, total, anchor)
+        ? core.translationPriorityIndex(
+            right.index,
+            total,
+            anchor,
+            translationScope,
+          )
         : Infinity
       return leftPriority - rightPriority
     })
@@ -917,13 +927,6 @@
     addEventListener(
       'pagehide',
       () => {
-        runToken += 1
-        if (activeCandidateId) {
-          void sendRuntimeMessage({
-            type: 'CANCEL_TRANSLATION',
-            candidateId: activeCandidateId,
-          })
-        }
         mutationObserver?.disconnect()
         intersectionObserver?.disconnect()
         resizeObserver?.disconnect()
@@ -949,6 +952,7 @@
     }
 
     if (message.type === 'SCAN_PAGE') {
+      translationScope = message.scope === 'all' ? 'all' : 'visible'
       applySettings(message.settings)
       void scan().then(sendResponse)
       return true

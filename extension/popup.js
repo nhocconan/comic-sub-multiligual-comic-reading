@@ -449,8 +449,10 @@ async function sendToTab(message) {
 async function injectContent(tabId) {
   let alreadyInjected = false
   try {
-    await chrome.tabs.sendMessage(tabId, { type: 'GET_CONTENT_STATUS' })
-    alreadyInjected = true
+    const status = await chrome.tabs.sendMessage(tabId, {
+      type: 'GET_CONTENT_STATUS',
+    })
+    alreadyInjected = Boolean(status && status.ok !== false)
   } catch {
     alreadyInjected = false
   }
@@ -486,10 +488,9 @@ function endpointPattern(endpoint) {
 
 async function ensureEndpointPermission(endpoint, requestPermission = false) {
   const origins = [endpointPattern(endpoint)]
-  let granted = await chrome.permissions.contains({ origins })
-  if (!granted && requestPermission) {
-    granted = await chrome.permissions.request({ origins })
-  }
+  const granted = requestPermission
+    ? await chrome.permissions.request({ origins })
+    : await chrome.permissions.contains({ origins })
   if (!granted) {
     throw new Error('Cần cấp quyền cho domain Koharu remote rồi bấm Kết nối lại.')
   }
@@ -629,11 +630,16 @@ async function checkHealth(requestPermission = false) {
   setBusy(elements.refreshButton, true, 'Đang kiểm tra…')
   elements.healthDot.dataset.tone = 'busy'
   try {
+    if (requestPermission) {
+      await ensureEndpointPermission(readSettings().endpoint, true)
+    }
     const settings = await persistSettings()
     if (!settings) {
       throw new Error('Sửa cài đặt chưa hợp lệ trước khi kiểm tra.')
     }
-    await ensureEndpointPermission(settings.endpoint, requestPermission)
+    if (!requestPermission) {
+      await ensureEndpointPermission(settings.endpoint)
+    }
     const response = await chrome.runtime.sendMessage({ type: 'HEALTH_CHECK' })
     applyProviderCatalog(response?.providers)
     renderHealth(response)
@@ -653,6 +659,7 @@ async function scanPage() {
   elements.pageStatus.textContent = 'Đang tìm ảnh comic trên trang…'
 
   try {
+    await ensureEndpointPermission(readSettings().endpoint, true)
     const tab = await getActiveTab()
     const activation = await chrome.runtime.sendMessage({
       type: 'ACTIVATE_TAB',
@@ -666,10 +673,10 @@ async function scanPage() {
     if (!settings) {
       throw new Error('Sửa địa chỉ Koharu trước khi quét.')
     }
-    await ensureEndpointPermission(settings.endpoint, true)
 
     const response = await sendToTab({
       type: 'SCAN_PAGE',
+      scope: 'all',
       settings: contentSettings(settings),
     })
     if (!response || response.ok === false) {

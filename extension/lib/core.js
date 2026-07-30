@@ -470,6 +470,18 @@
     return (safeIndex - safeAnchor + safeTotal) % safeTotal
   }
 
+  function translationPriorityIndex(index, total, anchorIndex, scope) {
+    const safeTotal = Math.max(1, Math.trunc(asFiniteNumber(total, 1)))
+    const safeIndex = clamp(
+      Math.trunc(asFiniteNumber(index)),
+      0,
+      safeTotal - 1,
+    )
+    return scope === 'all'
+      ? safeIndex
+      : readingPriorityIndex(safeIndex, safeTotal, anchorIndex)
+  }
+
   return Object.freeze({
     CANDIDATE_SELECTOR,
     DEFAULT_SCORE_THRESHOLD,
@@ -485,6 +497,7 @@
     orderedLookAheadIndexes,
     publicCandidate,
     readingPriorityIndex,
+    translationPriorityIndex,
     resolveHttpUrl,
     resolveImageSource,
     scoreCandidateMetrics,

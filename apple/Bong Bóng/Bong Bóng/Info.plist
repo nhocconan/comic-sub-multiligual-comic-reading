@@ -4,6 +4,17 @@
 <dict>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_comicsub._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Comic Sub tìm Mac broker của bạn trên mạng cục bộ để ghép nối dịch truyện mà không cần nhập địa chỉ server.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>SFSafariWebExtensionConverterVersion</key>
 	<string>26.4</string>
 	<key>UIApplicationSceneManifest</key>

@@ -2,10 +2,20 @@
 	@unauthorized not header Authorization "Bearer {$BONG_BONG_AUTH_KEY}"
 	respond @unauthorized 401
 
-	reverse_proxy host.docker.internal:4000 {
-		transport http {
-			read_timeout 10m
-			write_timeout 10m
+	handle /v1/* {
+		reverse_proxy broker:4100
+	}
+
+	handle /health {
+		reverse_proxy broker:4100
+	}
+
+	handle {
+		reverse_proxy host.docker.internal:4000 {
+			transport http {
+				read_timeout 10m
+				write_timeout 10m
+			}
 		}
 	}
 }

@@ -61,6 +61,25 @@ test('reading priority starts at the visible page and wraps to earlier pages las
   assert.equal(core.readingPriorityIndex(99, 6, 3), 2)
 })
 
+test('translate-all priority stays in DOM order even when the viewport moves', () => {
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5].sort(
+      (left, right) =>
+        core.translationPriorityIndex(left, 6, 3, 'all') -
+        core.translationPriorityIndex(right, 6, 3, 'all'),
+    ),
+    [0, 1, 2, 3, 4, 5],
+  )
+  assert.deepEqual(
+    [0, 1, 2, 3, 4, 5].sort(
+      (left, right) =>
+        core.translationPriorityIndex(left, 6, 3, 'visible') -
+        core.translationPriorityIndex(right, 6, 3, 'visible'),
+    ),
+    [3, 4, 5, 0, 1, 2],
+  )
+})
+
 test('source resolution prioritizes the stable outer lazy host over AMP runtime images', () => {
   const runtimeImage = element('img', { src: 'https://runtime.example/generated.jpg' }, {
     currentSrc: 'https://runtime.example/current.jpg',

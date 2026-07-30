@@ -118,9 +118,40 @@ fi
 
 KOHARU_API_BASE="http://127.0.0.1:4000/api/v1" \
   "${project_dir}/scripts/configure-providers.sh"
+
+broker_health="$(curl --silent --max-time 2 "http://127.0.0.1:4100/health" 2>/dev/null || true)"
+if [[ "$broker_health" == *'"adapter":"explicit-test"'* ]]; then
+  printf 'Port 4100 is running the explicit test broker. Stop it before starting Comic Sub.\n' >&2
+  exit 1
+fi
+if [[ "$broker_health" != *'"adapter":"koharu"'* ]]; then
+  nohup env \
+    BROKER_HOST="127.0.0.1" \
+    BROKER_PORT="4100" \
+    BROKER_DATA_DIR="${runtime_dir}/broker-data" \
+    KOHARU_ENDPOINT="http://127.0.0.1:4000/api/v1" \
+    node "${project_dir}/services/broker/src/main.js" \
+    >"${runtime_dir}/broker.log" 2>&1 &
+  printf '%s\n' "$!" >"${runtime_dir}/broker.pid"
+fi
+
+broker_ready=false
+for _attempt in $(seq 1 30); do
+  if curl --fail --silent "http://127.0.0.1:4100/health" | grep -q '"adapter":"koharu"'; then
+    broker_ready=true
+    break
+  fi
+  sleep 0.25
+done
+if [[ "$broker_ready" != "true" ]]; then
+  printf 'Comic Sub Broker did not become ready. Check %s/broker.log.\n' "$runtime_dir" >&2
+  exit 1
+fi
+
 printf '%s\n' "$runtime_mode" >"${runtime_dir}/active-mode"
 
 printf '\nComic Sub runtime is ready (%s).\n' "$runtime_mode"
+printf 'Broker: http://127.0.0.1:4100 (Koharu adapter, no mock)\n'
 printf 'Load the extension once from:\n%s/extension\n' "$project_dir"
 
 if [[ "$(uname -s)" == "Darwin" && ! -f "${runtime_dir}/extension-folder-opened" ]]; then

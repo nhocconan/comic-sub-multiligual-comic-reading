@@ -8,6 +8,8 @@ deploy/remote/.env
 playwright-report/
 .DS_Store
 build/
+!desktop/build/
+!desktop/build/icon.icns
 .gstack/
 *.xcarchive/
 *.ipa

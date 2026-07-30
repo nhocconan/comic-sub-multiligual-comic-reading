@@ -18,11 +18,39 @@ services:
     security_opt:
       - no-new-privileges:true
 
+  broker:
+    build:
+      context: .
+      dockerfile: services/broker/Dockerfile
+    init: true
+    restart: unless-stopped
+    depends_on:
+      - koharu
+    environment:
+      BROKER_HOST: 0.0.0.0
+      BROKER_PORT: 4100
+      BROKER_DATA_DIR: /data
+      KOHARU_ENDPOINT: http://koharu:4000/api/v1
+      SERIES_RESEARCH_ENABLED: "1"
+    volumes:
+      - broker-data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:4100/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 10s
+    security_opt:
+      - no-new-privileges:true
+
   gateway:
     image: caddy:2.10.0-alpine@sha256:ae4458638da8e1a91aafffb231c5f8778e964bca650c8a8cb23a7e8ac557aa3c
     restart: unless-stopped
     depends_on:
       - koharu
+      - broker
     env_file:
       - ./private/auth-keys.env
     volumes:
@@ -33,7 +61,7 @@ services:
     healthcheck:
       test:
         - CMD-SHELL
-        - 'wget --quiet --spider --header "Authorization: Bearer $${BONG_BONG_AUTH_KEY_1}" http://127.0.0.1/api/v1/meta'
+        - 'wget --quiet --spider --header "Authorization: Bearer $${BONG_BONG_AUTH_KEY_1}" http://127.0.0.1/api/v1/meta && wget --quiet --spider --header "Authorization: Bearer $${BONG_BONG_AUTH_KEY_1}" http://127.0.0.1/health'
       interval: 15s
       timeout: 10s
       retries: 20
@@ -65,6 +93,7 @@ services:
 volumes:
   koharu-data:
   koharu-secrets:
+  broker-data:
 
 networks:
   internal:

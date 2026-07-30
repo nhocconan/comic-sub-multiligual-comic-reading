@@ -1,9 +1,29 @@
 name: bong-bong-edge
 
 services:
+  broker:
+    build:
+      context: ../..
+      dockerfile: services/broker/Dockerfile
+    restart: unless-stopped
+    environment:
+      BROKER_HOST: 0.0.0.0
+      BROKER_PORT: 4100
+      BROKER_DATA_DIR: /data
+      KOHARU_ENDPOINT: http://host.docker.internal:4000/api/v1
+      SERIES_RESEARCH_ENABLED: "1"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - broker-data:/data
+    security_opt:
+      - no-new-privileges:true
+
   caddy:
     image: caddy:2.10.0-alpine
     restart: unless-stopped
+    depends_on:
+      - broker
     ports:
       - "80:80"
       - "443:443"
@@ -21,5 +41,6 @@ services:
       - no-new-privileges:true
 
 volumes:
+  broker-data:
   caddy-data:
   caddy-config:
