@@ -1484,7 +1484,7 @@ class ViewController: UIViewController, WKNavigationDelegate, WKScriptMessageHan
             settingsStore.saveToken(bootstrapToken)
         }
         switch ProcessInfo.processInfo.environment["COMIC_SUB_QA_ROUTE"] {
-        case "local-stub": settings.route = .onDevice
+        case "local", "local-stub": settings.route = .onDevice
         case "remote": settings.route = .managedCloud
         default: break
         }

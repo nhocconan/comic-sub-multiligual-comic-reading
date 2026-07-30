@@ -151,6 +151,11 @@ test('Safe Automatic prefers configured broker quality before installed Apple fa
   assert.match(source, /Uses Manga Sub Cloud when configured/)
 })
 
+test('iOS QA can exercise real on-device Translation separately from the deterministic stub', () => {
+  assert.match(source, /case "local", "local-stub": settings\.route = \.onDevice/)
+  assert.match(source, /COMIC_SUB_QA_ROUTE"\] == "local-stub"/)
+})
+
 test('iOS remote route keeps pixels local and sends OCR page windows before waiting for results', () => {
   const remotePipeline = source.match(
     /private func translate\(_ selected:[\s\S]*?private func translateFullyOnDevice/,
