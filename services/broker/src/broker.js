@@ -363,6 +363,16 @@ export class TranslationBroker {
     })
   }
 
+  async #transitionMany(jobIds, stateName, code) {
+    return this.repository.mutate((state) => {
+      for (const jobId of jobIds) {
+        const job = state.jobs[jobId]
+        if (job.state === 'CANCEL_REQUESTED' && stateName !== 'CANCELLED') continue
+        Object.assign(job, structuredClone(transitionJob(job, stateName, { code })))
+      }
+    })
+  }
+
   #scheduleBatch(batchId) {
     const existing = this.batchTimers.get(batchId)
     if (existing) clearTimeout(existing)
@@ -392,10 +402,8 @@ export class TranslationBroker {
     if (pending.length === 1) this.controllers.set(pending[0], controller)
     const started = Date.now()
     try {
-      for (const jobId of pending) {
-        await this.#transition(jobId, 'CLAIMED')
-        await this.#transition(jobId, 'ACQUIRING')
-      }
+      await this.#transitionMany(pending, 'CLAIMED')
+      await this.#transitionMany(pending, 'ACQUIRING')
       const contexts = await Promise.all(pending.map(async (jobId) => {
         const job = this.repository.read((state) => structuredClone(state.jobs[jobId]))
         if (job.state === 'CANCEL_REQUESTED') {
@@ -411,11 +419,12 @@ export class TranslationBroker {
       }))
       const activeContexts = contexts.filter(Boolean)
       if (!activeContexts.length) return
-      for (const context of activeContexts) await this.#transition(context.job.jobId, 'OCR')
+      const activeJobIds = activeContexts.map((context) => context.job.jobId)
+      await this.#transitionMany(activeJobIds, 'OCR')
       const work = typeof this.adapter.translateBatch === 'function'
         ? this.adapter.translateBatch(activeContexts)
         : Promise.all(activeContexts.map((context) => this.adapter.translate(context)))
-      for (const context of activeContexts) await this.#transition(context.job.jobId, 'TRANSLATING')
+      await this.#transitionMany(activeJobIds, 'TRANSLATING')
       const results = await work
       controller.signal.throwIfAborted()
       if (!Array.isArray(results) || results.length !== activeContexts.length) {
@@ -423,11 +432,13 @@ export class TranslationBroker {
           code: 'INVALID_ADAPTER_BATCH_RESULT',
         })
       }
+      const settling = []
       await Promise.all(activeContexts.map(async (context, index) => {
         const state = this.repository.read((value) => value.jobs[context.job.jobId]?.state)
         if (state === 'CANCEL_REQUESTED') return this.#finishCancelled(context.job.jobId)
-        return this.#settleResult(context.job.jobId, results[index], started)
+        settling.push({ jobId: context.job.jobId, result: results[index] })
       }))
+      if (settling.length) await this.#settleResults(settling, started)
     } catch (error) {
       await Promise.all(pending.map(async (jobId) => {
         const cancelled = controller.signal.aborted ||
@@ -443,55 +454,69 @@ export class TranslationBroker {
     }
   }
 
-  async #settleResult(jobId, result, started) {
-    await this.#transition(jobId, 'RENDERING')
-    if (!result.renderedBytes || !ALLOWED_IMAGE_TYPES.has(result.renderedContentType)) {
-      throw Object.assign(new Error('Adapter did not return a valid rendered asset'), {
-        code: 'INVALID_ADAPTER_RESULT',
-      })
+  async #settleResults(entries, started) {
+    for (const { result } of entries) {
+      if (!result.renderedBytes || !ALLOWED_IMAGE_TYPES.has(result.renderedContentType)) {
+        throw Object.assign(new Error('Adapter did not return a valid rendered asset'), {
+          code: 'INVALID_ADAPTER_RESULT',
+        })
+      }
     }
-    await this.repository.writeAsset(jobId, result.renderedBytes, 'rendered')
-    await this.#transition(jobId, 'VERIFYING')
-    const renderedHash = createHash('sha256').update(result.renderedBytes).digest('hex')
     await this.repository.mutate((state) => {
-      const mutable = state.jobs[jobId]
-      mutable.result = {
-        page: result.page,
-        overlayRegions: result.overlayRegions,
-        adapter: result.adapter,
-        renderedAsset: {
-          contentType: result.renderedContentType,
-          byteLength: result.renderedBytes.length,
-          sha256: renderedHash,
-        },
+      for (const { jobId } of entries) {
+        const job = state.jobs[jobId]
+        Object.assign(job, structuredClone(transitionJob(job, 'RENDERING')))
       }
-      mutable.receipt = createModelReceipt(mutable.execution, result)
-      Object.assign(mutable, structuredClone(transitionJob(mutable, 'SUCCEEDED')))
-      Object.assign(mutable, structuredClone(transitionJob(mutable, 'SETTLED')))
-      mutable.ledger = {
-        ...mutable.ledger,
-        state: 'CAPTURED',
-        capturedMicros: Math.min(
-          mutable.ledger.reservedMicros,
-          result.estimatedCostMicros ?? mutable.ledger.reservedMicros,
-        ),
+    })
+    await Promise.all(entries.map(({ jobId, result }) =>
+      this.repository.writeAsset(jobId, result.renderedBytes, 'rendered')))
+    const finalized = entries.map(({ jobId, result }) => ({
+      jobId,
+      result,
+      renderedHash: createHash('sha256').update(result.renderedBytes).digest('hex'),
+    }))
+    await this.repository.mutate((state) => {
+      for (const { jobId, result, renderedHash } of finalized) {
+        const mutable = state.jobs[jobId]
+        Object.assign(mutable, structuredClone(transitionJob(mutable, 'VERIFYING')))
+        mutable.result = {
+          page: result.page,
+          overlayRegions: result.overlayRegions,
+          adapter: result.adapter,
+          renderedAsset: {
+            contentType: result.renderedContentType,
+            byteLength: result.renderedBytes.length,
+            sha256: renderedHash,
+          },
+        }
+        mutable.receipt = createModelReceipt(mutable.execution, result)
+        Object.assign(mutable, structuredClone(transitionJob(mutable, 'SUCCEEDED')))
+        Object.assign(mutable, structuredClone(transitionJob(mutable, 'SETTLED')))
+        mutable.ledger = {
+          ...mutable.ledger,
+          state: 'CAPTURED',
+          capturedMicros: Math.min(
+            mutable.ledger.reservedMicros,
+            result.estimatedCostMicros ?? mutable.ledger.reservedMicros,
+          ),
+        }
+        state.telemetry.push({
+          ...validateSafeTelemetryEvent({
+            eventId: `event:${randomUUID()}`,
+            requestId: mutable.batchId,
+            jobId,
+            timestamp: new Date().toISOString(),
+            stage: 'SETTLED',
+            requestedModel: mutable.execution.requestedExecution.model,
+            resolvedModel: mutable.execution.resolvedExecution.model,
+            providerReportedModel: result.providerReportedModel,
+            tokenCounts: result.tokenCounts,
+            latencyMs: Date.now() - started,
+            estimatedCostMicros: result.estimatedCostMicros,
+          }),
+          principalKey: `${mutable.principal.tenantId}:${mutable.principal.deviceId}`,
+        })
       }
-      state.telemetry.push({
-        ...validateSafeTelemetryEvent({
-          eventId: `event:${randomUUID()}`,
-          requestId: mutable.batchId,
-          jobId,
-          timestamp: new Date().toISOString(),
-          stage: 'SETTLED',
-          requestedModel: mutable.execution.requestedExecution.model,
-          resolvedModel: mutable.execution.resolvedExecution.model,
-          providerReportedModel: result.providerReportedModel,
-          tokenCounts: result.tokenCounts,
-          latencyMs: Date.now() - started,
-          estimatedCostMicros: result.estimatedCostMicros,
-        }),
-        principalKey: `${mutable.principal.tenantId}:${mutable.principal.deviceId}`,
-      })
     })
   }
 

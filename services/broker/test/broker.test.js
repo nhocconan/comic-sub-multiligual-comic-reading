@@ -277,6 +277,12 @@ test('assets uploaded together are processed as one adapter batch', async () => 
       ...batchRequest(),
       candidateIds: ['candidate-1', 'candidate-2'],
     }, 'batch-window-key')
+    let persistenceMutations = 0
+    const mutate = app.repository.mutate.bind(app.repository)
+    app.repository.mutate = (...args) => {
+      persistenceMutations += 1
+      return mutate(...args)
+    }
     await Promise.all(batch.jobIds.map((jobId) =>
       app.broker.uploadAsset(actor, jobId, PNG, {
         contentType: 'image/png',
@@ -288,6 +294,7 @@ test('assets uploaded together are processed as one adapter batch', async () => 
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
     assert.deepEqual(adapter.batchSizes, [2])
+    assert.equal(persistenceMutations, 8)
   } finally {
     await app.close()
   }
