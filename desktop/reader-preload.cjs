@@ -60,7 +60,7 @@ function createUi() {
   const style = document.createElement('style')
   style.textContent = `
     #comic-sub-float{position:fixed;right:20px;bottom:22px;z-index:2147483647;display:flex;align-items:center;gap:6px;padding:7px;border:1px solid rgba(255,255,255,.16);border-radius:15px;background:rgba(14,16,19,.82);box-shadow:0 14px 44px rgba(0,0,0,.45);backdrop-filter:blur(18px);font:12px/1.2 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#f4f1e9}
-    #comic-sub-float .mark{display:grid;place-items:center;width:25px;height:25px;border-radius:9px;background:#d6ff4e;color:#10140a;font-weight:900}#comic-sub-float button{border:0;border-radius:9px;padding:8px 10px;background:transparent;color:#f4f1e9;cursor:pointer;font:inherit;font-weight:700}#comic-sub-float button:hover{background:rgba(255,255,255,.11)}#comic-sub-float .primary{background:#d6ff4e;color:#11150a}#comic-sub-float .primary:hover{background:#ecff9a}#comic-sub-float .status{max-width:130px;color:#b8c0ba;padding:0 4px}#comic-sub-confirm{position:fixed;right:20px;bottom:78px;z-index:2147483647;width:300px;padding:16px;border:1px solid rgba(255,255,255,.16);border-radius:16px;background:#171a1e;color:#f4f1e9;box-shadow:0 20px 60px rgba(0,0,0,.6);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}#comic-sub-confirm h3{margin:0 0 8px;font-size:15px}#comic-sub-confirm p{margin:0 0 12px;color:#b8c0ba}.cs-actions{display:flex;gap:8px}.cs-actions button{border:0;border-radius:9px;padding:8px 10px;font:inherit;font-weight:700;cursor:pointer}.cs-actions .go{background:#d6ff4e;color:#11150a}.cs-actions .cancel{background:#2a2e34;color:#f4f1e9}.comic-sub-overlay-layer{position:fixed;z-index:2147483000;overflow:hidden;pointer-events:none;contain:strict}.comic-sub-overlay{position:absolute;display:grid;place-items:center;box-sizing:border-box;padding:3px;border:0;border-radius:6px;background:rgba(255,253,245,.96);color:#141812;text-align:center;font:700 17px/1.12 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:none;pointer-events:auto;cursor:help;overflow:hidden;overflow-wrap:anywhere;word-break:normal;text-wrap:balance}.comic-sub-source{opacity:.15!important}
+    #comic-sub-float .mark{display:grid;place-items:center;width:25px;height:25px;border-radius:9px;background:#d6ff4e;color:#10140a;font-weight:900}#comic-sub-float button{border:0;border-radius:9px;padding:8px 10px;background:transparent;color:#f4f1e9;cursor:pointer;font:inherit;font-weight:700}#comic-sub-float button:hover{background:rgba(255,255,255,.11)}#comic-sub-float .primary{background:#d6ff4e;color:#11150a}#comic-sub-float .primary:hover{background:#ecff9a}#comic-sub-float .status{max-width:130px;color:#b8c0ba;padding:0 4px}#comic-sub-confirm{position:fixed;right:20px;bottom:78px;z-index:2147483647;width:300px;padding:16px;border:1px solid rgba(255,255,255,.16);border-radius:16px;background:#171a1e;color:#f4f1e9;box-shadow:0 20px 60px rgba(0,0,0,.6);font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}#comic-sub-confirm h3{margin:0 0 8px;font-size:15px}#comic-sub-confirm p{margin:0 0 12px;color:#b8c0ba}.cs-actions{display:flex;gap:8px}.cs-actions button{border:0;border-radius:9px;padding:8px 10px;font:inherit;font-weight:700;cursor:pointer}.cs-actions .go{background:#d6ff4e;color:#11150a}.cs-actions .cancel{background:#2a2e34;color:#f4f1e9}.comic-sub-overlay-layer{position:absolute;z-index:2147483000;overflow:hidden;pointer-events:none;contain:strict}.comic-sub-overlay{position:absolute;display:grid;place-items:center;box-sizing:border-box;padding:3px;border:0;border-radius:6px;background:rgba(255,253,245,.96);color:#141812;text-align:center;font:700 17px/1.12 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;box-shadow:none;pointer-events:auto;cursor:help;overflow:hidden;overflow-wrap:anywhere;word-break:normal;text-wrap:balance}.comic-sub-source{opacity:.15!important}
   `
   document.documentElement.append(style)
   const root = document.createElement('aside')
@@ -261,7 +261,7 @@ function overlayLayer(item) {
   layer = document.createElement('div')
   layer.className = 'comic-sub-overlay-layer'
   layer.dataset.comicSubCandidate = item.candidateId
-  ;(document.body || document.documentElement).append(layer)
+  document.documentElement.append(layer)
   overlayLayers.set(item.candidateId, layer)
   return layer
 }
@@ -273,8 +273,8 @@ function layoutOverlay(overlay, descriptor) {
   const imageRect = image.getBoundingClientRect()
   if (imageRect.width <= 1 || imageRect.height <= 1) return
   const layer = overlayLayer(item)
-  layer.style.left = `${imageRect.left}px`
-  layer.style.top = `${imageRect.top}px`
+  layer.style.left = `${imageRect.left + window.scrollX}px`
+  layer.style.top = `${imageRect.top + window.scrollY}px`
   layer.style.width = `${imageRect.width}px`
   layer.style.height = `${imageRect.height}px`
   layer.hidden = imageRect.bottom <= 0 || imageRect.top >= window.innerHeight
