@@ -14,6 +14,7 @@ test('iOS translation menu button uses a compact generic label and recognizable 
   assert.match(source, /UIImage\(systemName: "character\.bubble\.fill"\)/)
   assert.match(source, /configuration\?\.title = uiText\("Translate", "Dịch"\)/)
   assert.doesNotMatch(source, /configuration\?\.title = uiText\("Translate Current"/)
-  assert.ok(source.includes('"Translate This Chapter · \\(candidates.count) Images", "Dịch chương này · \\(candidates.count) ảnh"'))
+  assert.ok(source.includes('"Translate This Chapter", "Dịch chương này"'))
   assert.match(source, /"Translate Visible Image Only", "Chỉ dịch ảnh đang nhìn"/)
+  assert.match(source, /prepareAllCandidates\(navigationID:/)
 })
