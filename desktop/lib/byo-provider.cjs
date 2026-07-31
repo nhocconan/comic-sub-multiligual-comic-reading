@@ -327,12 +327,19 @@ async function callTranslationProvider(config, key, prompt, signal, fetchImpl) {
     }, signal, fetchImpl, 90_000)
     raw = (value.content || []).filter((part) => part.type === 'text').map((part) => part.text).join('')
   } else {
+    const deepSeek = new URL(config.baseUrl).hostname === 'api.deepseek.com'
+    const outputTokenCap = Math.min(8_192, Math.max(1_024, prompt.ids.size * 192))
     value = await requestJson(`${config.baseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...bearerHeaders(key) },
       body: JSON.stringify({
         model: config.model,
         temperature: 0.1,
+        max_tokens: outputTokenCap,
+        ...(deepSeek ? {
+          thinking: { type: 'disabled' },
+          response_format: { type: 'json_object' },
+        } : {}),
         messages: [
           { role: 'system', content: prompt.system },
           { role: 'user', content: prompt.user },

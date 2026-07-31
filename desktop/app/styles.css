@@ -108,6 +108,8 @@ button { -webkit-app-region: no-drag; }
   border: 1px solid #333941;
   border-radius: 11px;
   background: var(--surface-2);
+  cursor: text;
+  -webkit-app-region: no-drag;
 }
 
 .address button {
@@ -122,11 +124,21 @@ button { -webkit-app-region: no-drag; }
 .address input {
   min-width: 0;
   flex: 1;
+  height: 100%;
+  padding: 0 8px;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--paper);
   font-size: 13px;
+  cursor: text;
+  user-select: text;
+  -webkit-app-region: no-drag;
+}
+
+.address:focus-within {
+  border-color: #7d9639;
+  box-shadow: 0 0 0 3px rgba(214, 255, 78, .12);
 }
 
 .address .open-button {
@@ -180,21 +192,22 @@ button { -webkit-app-region: no-drag; }
 .nav { display: grid; gap: 3px; }
 
 .nav-item {
-  padding: 10px;
+  padding: 12px;
   border: 0;
   border-radius: 9px;
   background: transparent;
   color: #9da49f;
   text-align: left;
-  font-size: 13px;
+  font-size: 15px;
+  font-weight: 720;
   cursor: pointer;
 }
 
-.nav-item span { display: inline-block; width: 22px; color: #68706a; }
+.nav-item span { display: inline-block; width: 27px; color: #68706a; }
 .nav-item.active { background: #252a2f; color: var(--paper); }
 .nav-item.active span { color: var(--acid); }
 
-.reader-controls { margin-top: 31px; }
+.reader-controls { margin-top: 24px; }
 .eyebrow { margin: 0 0 8px; color: #7e8780; font-size: 10px; font-weight: 800; letter-spacing: .16em; }
 
 .language-line {
@@ -215,14 +228,25 @@ button { -webkit-app-region: no-drag; }
   cursor: pointer;
 }
 
+.retranslate-action {
+  width: 100%;
+  margin: 9px 0 0;
+  padding: 9px 10px;
+  border: 1px solid #465030;
+  border-radius: 9px;
+  background: #20261a;
+  text-align: left;
+}
+
 .primary-action,
 .secondary-action {
   display: flex;
   width: 100%;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 13px;
+  padding: 10px 12px;
   border-radius: 11px;
+  font-size: 12px;
   font-weight: 800;
   cursor: pointer;
 }

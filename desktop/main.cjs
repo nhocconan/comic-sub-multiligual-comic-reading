@@ -9,6 +9,7 @@ const { DEFAULT_SETTINGS, migrateSettings, safeAssetReferrer, safeUrl } = requir
 const { ALLOWED_TYPES, BrokerClientError, createBrokerClient, normalizeEndpoint, readBounded, sha256, sniffImageType } = require('./lib/broker-client.cjs')
 const { isLoopbackCompatible, listProviderModels, normalizeProviderConfig, recommendModel, translateOcrPages } = require('./lib/byo-provider.cjs')
 const { attachNativeTranslations, nativeTranslationInput } = require('./lib/native-translation.cjs')
+const { cachedResults, pruneTranslationCache, recordTranslation } = require('./lib/translation-cache.cjs')
 
 function prepareUserDataPath() {
   const isolatedPath = String(process.env.MANGA_SUB_USER_DATA_DIR || '').trim()
@@ -44,6 +45,8 @@ let activeReaderUrl = null
 let historyPersistTimer
 let pendingHistory
 let activeSnapshot = null
+let restoredCacheNavigationId = null
+let restoredCacheSources = new Set()
 let activeJobs = new Map()
 let tokenConfiguredCache = false
 const providerKeyConfiguredCache = new Map()
@@ -66,6 +69,7 @@ function loadState() {
     return {
       settings: migrated.settings,
       history: Array.isArray(saved.history) ? saved.history.slice(0, 100) : [],
+      translationCache: pruneTranslationCache(saved.translationCache, migrated.settings.translationCacheLimit),
       glossaryConsent: saved.glossaryConsent || null,
       glossary: Array.isArray(saved.glossary) ? saved.glossary : [],
       seriesGlossary: saved.seriesGlossary || null,
@@ -73,13 +77,17 @@ function loadState() {
       deviceId: saved.deviceId || `desktop:${randomUUID()}`,
     }
   } catch {
-    return { settings: { ...DEFAULT_SETTINGS }, history: [], glossaryConsent: null, glossary: [], seriesGlossary: null, needsModelChoice: false, deviceId: `desktop:${randomUUID()}` }
+    return { settings: { ...DEFAULT_SETTINGS }, history: [], translationCache: [], glossaryConsent: null, glossary: [], seriesGlossary: null, needsModelChoice: false, deviceId: `desktop:${randomUUID()}` }
   }
 }
 
 let state = loadState()
 
 function saveState() {
+  state.translationCache = pruneTranslationCache(
+    state.translationCache,
+    state.settings.translationCacheLimit,
+  )
   const safe = { ...state, settings: { ...state.settings, tokenConfigured: undefined } }
   fs.mkdirSync(app.getPath('userData'), { recursive: true })
   fs.writeFileSync(dataPath('reader-state.json'), JSON.stringify(safe, null, 2), { mode: 0o600 })
@@ -330,6 +338,8 @@ function isSafeExternalUrl(value) {
 function destroyReader() {
   cancelActiveJobs().catch(() => {})
   activeSnapshot = null
+  restoredCacheNavigationId = null
+  restoredCacheSources = new Set()
   if (!readerView) return
   try { windowRef.contentView.removeChildView(readerView) } catch {}
   try { readerView.webContents.close() } catch {}
@@ -370,6 +380,52 @@ function scheduleHistory(url, reader) {
     if (pendingHistory) recordHistory(pendingHistory.url, pendingHistory.reader)
     pendingHistory = null
   }, 800)
+}
+
+function rememberTranslation(snapshot, candidateId, result, receipt, route) {
+  if (privateSession || !snapshot?.pageUrl) return
+  const candidate = snapshot.candidates?.find((item) => item.candidateId === candidateId)
+  if (!candidate?.sourceUrl) return
+  state.translationCache = recordTranslation(state.translationCache, {
+    pageUrl: snapshot.pageUrl,
+    targetLanguage: state.settings.targetLanguage,
+    sourceUrl: candidate.sourceUrl,
+    result,
+    receipt,
+    route,
+  }, state.settings.translationCacheLimit)
+  saveState()
+}
+
+function restoreCachedTranslations(snapshot) {
+  if (privateSession || !snapshot?.navigationId) return
+  if (restoredCacheNavigationId !== snapshot.navigationId) {
+    restoredCacheNavigationId = snapshot.navigationId
+    restoredCacheSources = new Set()
+  }
+  for (const cached of cachedResults(
+    state.translationCache,
+    snapshot,
+    state.settings.targetLanguage,
+  )) {
+    if (restoredCacheSources.has(cached.sourceUrl)) continue
+    restoredCacheSources.add(cached.sourceUrl)
+    const jobId = `cache:${randomUUID()}`
+    readerStatus({
+      type: 'attach-result',
+      jobId,
+      candidateId: cached.candidateId,
+      result: cached.result,
+      receipt: cached.receipt,
+      restored: true,
+    })
+    emit('app:broker-receipt', {
+      ...cached.receipt,
+      jobId,
+      route: cached.receipt?.route || 'local',
+      restored: true,
+    })
+  }
 }
 
 function createReader({ url, isPrivate = privateSession } = {}) {
@@ -818,6 +874,7 @@ async function runBrokerJob(client, snapshot, job, candidate, controller) {
     }
     assertCurrentNavigation(snapshot)
     await recordSeriesContinuity(client, snapshot, result, controller.signal).catch(() => {})
+    rememberTranslation(snapshot, candidate.candidateId, result, receipt, 'managed')
     readerStatus({ type: 'attach-result', jobId: job.jobId, candidateId: candidate.candidateId, result, receipt })
     emit('app:broker-receipt', { ...receipt, jobId: job.jobId, route: processingLocus() })
   } catch (error) {
@@ -884,6 +941,35 @@ function targetLanguageName(value) {
   }[value] || value
 }
 
+function byoTranslationGroups(pages) {
+  const groups = []
+  let current = []
+  let regionCount = 0
+  let sourceCharacters = 0
+  for (const page of pages) {
+    const regions = page.ocr?.regions || []
+    const pageCharacters = regions.reduce(
+      (total, region) => total + String(region?.source || '').length,
+      0,
+    )
+    if (current.length && (
+      current.length >= 3
+      || regionCount + regions.length > 180
+      || sourceCharacters + pageCharacters > 20_000
+    )) {
+      groups.push(current)
+      current = []
+      regionCount = 0
+      sourceCharacters = 0
+    }
+    current.push(page)
+    regionCount += regions.length
+    sourceCharacters += pageCharacters
+  }
+  if (current.length) groups.push(current)
+  return groups
+}
+
 async function runLocalBatch(snapshot, selectedIds) {
   if (snapshot.isTestMode) {
     throw new BrokerClientError(
@@ -936,6 +1022,7 @@ async function runLocalBatch(snapshot, selectedIds) {
           estimatedCostMicros: 0,
           completedAt: new Date().toISOString(),
         }
+        rememberTranslation(snapshot, result.candidateId, result, receipt, 'local')
         readerStatus({
           type: 'attach-result',
           jobId,
@@ -994,42 +1081,62 @@ async function runByoBatch(snapshot, selectedIds) {
       }
       await Promise.all(Array.from({ length: Math.min(2, group.length) }, recognizeWorker))
       assertCurrentNavigation(snapshot)
-      readerStatus({ type: 'broker-progress', jobId: operationId, state: 'TRANSLATING' })
-      const results = await translateOcrPages(config, key, group.map((candidateId) => ({
+      const pages = group.map((candidateId) => ({
         candidateId,
         ocr: clientOcr[candidateId],
-      })), {
-        targetLanguage: targetLanguageName(state.settings.targetLanguage),
-        glossary: state.glossary,
-        signal: controller.signal,
-      })
-      assertCurrentNavigation(snapshot)
-      for (const result of results) {
-        const jobId = `${operationId}:${result.candidateId}`
-        const receipt = {
-          requestedProvider: config.provider,
-          requestedModel: config.model,
-          resolvedProvider: config.provider,
-          resolvedModel: config.model,
-          providerReportedModel: config.model,
-          modelMatched: true,
-          tokenCounts: { input: 0, output: 0 },
-          estimatedCostMicros: 0,
-          completedAt: new Date().toISOString(),
+      }))
+      // Adaptive micro-batches avoid both one provider round-trip per page and
+      // one enormous response for an entire long-scroll chapter. Up to three
+      // bounded groups run in parallel and render as soon as each group lands.
+      const translationGroups = byoTranslationGroups(pages)
+      cursor = 0
+      const translateWorker = async () => {
+        while (cursor < translationGroups.length && !controller.signal.aborted) {
+          const pageGroup = translationGroups[cursor++]
+          readerStatus({
+            type: 'broker-progress',
+            jobId: operationId,
+            candidateId: pageGroup[0]?.candidateId,
+            state: 'TRANSLATING',
+          })
+          const results = await translateOcrPages(config, key, pageGroup, {
+            targetLanguage: targetLanguageName(state.settings.targetLanguage),
+            glossary: state.glossary,
+            signal: controller.signal,
+          })
+          assertCurrentNavigation(snapshot)
+          for (const result of results) {
+            const jobId = `${operationId}:${result.candidateId}`
+            const receipt = {
+              requestedProvider: config.provider,
+              requestedModel: config.model,
+              resolvedProvider: config.provider,
+              resolvedModel: config.model,
+              providerReportedModel: config.model,
+              modelMatched: true,
+              tokenCounts: { input: 0, output: 0 },
+              estimatedCostMicros: 0,
+              completedAt: new Date().toISOString(),
+            }
+            rememberTranslation(snapshot, result.candidateId, result, receipt, 'byo')
+            readerStatus({
+              type: 'attach-result',
+              jobId,
+              candidateId: result.candidateId,
+              result,
+              receipt,
+            })
+            emit('app:broker-receipt', {
+              ...receipt,
+              jobId,
+              route: 'byo',
+            })
+          }
         }
-        readerStatus({
-          type: 'attach-result',
-          jobId,
-          candidateId: result.candidateId,
-          result,
-          receipt,
-        })
-        emit('app:broker-receipt', {
-          ...receipt,
-          jobId,
-          route: 'byo',
-        })
       }
+      await Promise.all(Array.from({
+        length: Math.min(3, translationGroups.length),
+      }, translateWorker))
     } finally {
       activeJobs.delete(operationId)
     }
@@ -1100,6 +1207,8 @@ ipcMain.handle('app:save-settings', async (_event, patch) => {
   }
   if (!allowedRoutes.has(next.route)) next.route = 'ask'
   if (!['fast', 'balanced', 'quality'].includes(next.profile)) next.profile = 'balanced'
+  if (![0, 5, 10].includes(Number(next.translationCacheLimit))) next.translationCacheLimit = 10
+  else next.translationCacheLimit = Number(next.translationCacheLimit)
   next.byoProvider = providerCredentialId(next.byoProvider || 'gemini')
   next.byoModel = String(next.byoModel || '').trim().slice(0, 256)
   if (next.byoProvider === 'openai-compatible') {
@@ -1111,6 +1220,7 @@ ipcMain.handle('app:save-settings', async (_event, patch) => {
   if (typeof next.brokerEndpoint === 'string') next.brokerEndpoint = normalizeEndpoint(next.brokerEndpoint || 'https://comic-be.dep.app')
   if (typeof next.serverUrl === 'string' && next.serverUrl.trim()) next.serverUrl = safeUrl(next.serverUrl)
   state.settings = next
+  state.translationCache = pruneTranslationCache(state.translationCache, next.translationCacheLimit)
   saveState()
   if (Object.hasOwn(patch || {}, 'uiLanguage')) {
     commandReader({ type: 'ui-language', language: next.uiLanguage })
@@ -1175,7 +1285,10 @@ ipcMain.handle('app:model-choice', (_event, choice) => {
 ipcMain.on('reader:status', (event, payload) => {
   if (!readerView || event.sender.id !== readerView.webContents.id) return
   emit('reader:status', payload)
-  if (payload?.type === 'snapshot') activeSnapshot = payload.snapshot || null
+  if (payload?.type === 'snapshot') {
+    activeSnapshot = payload.snapshot || null
+    restoreCachedTranslations(activeSnapshot)
+  }
   if (payload?.type === 'translate-request') {
     if (state.settings.route === 'ask') {
       emit('reader:status', {

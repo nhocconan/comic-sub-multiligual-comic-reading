@@ -145,6 +145,67 @@ test('one BYO request translates all OCR regions while preserving local geometry
   ])
 })
 
+test('DeepSeek translation disables default high-effort thinking and requests bounded JSON', async () => {
+  let body
+  const fetchImpl = async (_url, options) => {
+    body = JSON.parse(options.body)
+    const ids = JSON.parse(body.messages[1].content).regions.map((region) => region.id)
+    return response({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            translations: ids.map((id) => ({ id, text: 'Bản dịch' })),
+          }),
+        },
+      }],
+    })
+  }
+  await translateOcrPages({
+    provider: 'openai-compatible',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-v4-flash',
+  }, 'secret', [{
+    candidateId: 'page-1',
+    ocr: {
+      page: { width: 900, height: 1_200 },
+      regions: [{ id: 'r1', source: '成功', x: 1, y: 1, width: 10, height: 10 }],
+    },
+  }], { fetchImpl })
+  assert.deepEqual(body.thinking, { type: 'disabled' })
+  assert.deepEqual(body.response_format, { type: 'json_object' })
+  assert.equal(body.max_tokens, 1_024)
+})
+
+test('generic OpenAI-compatible translation does not inject DeepSeek-only controls', async () => {
+  let body
+  const fetchImpl = async (_url, options) => {
+    body = JSON.parse(options.body)
+    return response({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            translations: [{ id: 'page-1::r1', text: 'Translated' }],
+          }),
+        },
+      }],
+    })
+  }
+  await translateOcrPages({
+    provider: 'openai-compatible',
+    baseUrl: 'https://llm.example.test/v1',
+    model: 'fast-model',
+  }, 'secret', [{
+    candidateId: 'page-1',
+    ocr: {
+      page: { width: 900, height: 1_200 },
+      regions: [{ id: 'r1', source: '成功', x: 1, y: 1, width: 10, height: 10 }],
+    },
+  }], { fetchImpl })
+  assert.equal(body.thinking, undefined)
+  assert.equal(body.response_format, undefined)
+  assert.equal(body.max_tokens, 1_024)
+})
+
 test('provider configuration never accepts an empty or oversized model id', () => {
   assert.equal(normalizeProviderConfig({ provider: 'openai' }).model, '')
   assert.throws(

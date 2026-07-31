@@ -39,6 +39,13 @@ test('desktop UI defaults to English and persists a valid Vietnamese choice', ()
   assert.equal(migrateSettings({ uiLanguage: 'unsupported' }).settings.uiLanguage, 'en')
 })
 
+test('translated chapter cache defaults to ten and only accepts 0/5/10', () => {
+  assert.equal(migrateSettings({}).settings.translationCacheLimit, 10)
+  assert.equal(migrateSettings({ translationCacheLimit: 5 }).settings.translationCacheLimit, 5)
+  assert.equal(migrateSettings({ translationCacheLimit: 0 }).settings.translationCacheLimit, 0)
+  assert.equal(migrateSettings({ translationCacheLimit: 999 }).settings.translationCacheLimit, 10)
+})
+
 test('receipt makes an external AI text destination explicit', () => {
   const receipt = receiptFor({ route: 'byo', serverUrl: 'https://reader.example.test' })
   assert.equal(receipt.imageDestination, 'This computer')

@@ -34,6 +34,9 @@ test('reader scans AMP comic image hosts used by Baozimh', () => {
   assert.match(source, /function scheduleOverlayRelayout\(\)/)
   assert.match(source, /new ResizeObserver\(scheduleOverlayRelayout\)/)
   assert.match(source, /currentOverlayItem\(descriptor\)/)
+  assert.match(source, /command\.type === 'reset-translations'/)
+  assert.match(source, /item\.translated = false/)
+  assert.match(source, /querySelectorAll\?\.\('\.comic-sub-overlay'\)/)
   assert.match(source, /const seenSources = new Set\(\)/)
   assert.match(source, /previousBySource\.get\(sourceUrl\)/)
   assert.doesNotMatch(source, /const found = \[\.\.\.document\.images\]/)
@@ -71,6 +74,21 @@ test('desktop local route uses native Apple Translation without invoking the bro
   )
   assert.doesNotMatch(localBatch, /brokerClient|createBatch|registerSnapshot/)
   assert.match(localBatch, /recognizeLocalText/)
+})
+
+test('desktop BYO route uses bounded three-page micro-batches with bounded concurrency', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'main.cjs'), 'utf8')
+  const byoBatch = source.slice(
+    source.indexOf('async function runByoBatch'),
+    source.indexOf('async function cancelActiveJobs'),
+  )
+  assert.match(source, /function byoTranslationGroups\(pages\)/)
+  assert.match(source, /current\.length >= 3/)
+  assert.match(source, /regionCount \+ regions\.length > 180/)
+  assert.match(source, /sourceCharacters \+ pageCharacters > 20_000/)
+  assert.match(byoBatch, /translateOcrPages\(config, key, pageGroup/)
+  assert.match(byoBatch, /Math\.min\(3, translationGroups\.length\)/)
+  assert.doesNotMatch(byoBatch, /translateOcrPages\(config, key, group\.map/)
 })
 
 test('macOS credential access runs out of process with a bounded timeout', () => {

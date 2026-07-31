@@ -7,6 +7,7 @@ let activeTab = 'reader'
 let latestReceipt = null
 let toastTimer
 let pendingTranslationCommand = null
+let pendingRetranslation = false
 let providerModels = []
 let lastSnapshotStatus = null
 let lastActivityStatus = null
@@ -20,6 +21,7 @@ const messages = {
     addressFormAria: 'Open a comic chapter', back: 'Back', addressPlaceholder: 'Paste a chapter URL…', open: 'Open',
     navigation: 'Navigation', read: 'Read', library: 'Library', settings: 'Settings', privateSession: 'Private session',
     change: 'Change', translateCurrent: 'Translate current view', translateAllLoaded: 'Translate all loaded images',
+    retranslateWithAnother: 'Translate again with Cloud / API',
     stopQueue: 'Stop current queue', waitingForPage: 'Waiting for a comic page…',
     whereTranslate: 'Where should this chapter be translated?', onThisMac: 'On this Mac',
     localRouteDetail: 'Private · Apple Vision + Translation', cloudRouteDetail: 'Fastest · try it without an account',
@@ -35,6 +37,8 @@ const messages = {
     preferencesTitle: 'Quality, language, and privacy.', preferencesDetail: 'Model and token controls only appear in advanced settings.',
     appLanguage: 'App language', sourceLanguage: 'Source language', targetLanguage: 'Target language',
     translationProfile: 'Translation profile', translationLocation: 'Translation location', defaultRoute: 'Default route',
+    savedTranslations: 'Saved translated chapters', saveNone: 'None', saveFive: 'Latest 5', saveTen: 'Latest 10',
+    savedTranslationsHint: 'Only translated text and OCR positions are saved, never comic images. Storage is capped at 2 MiB.',
     askEachTime: 'Ask each time', routeHint: 'Automatic mode only uses routes you approved. The app never silently switches to cloud.',
     detectAutomatically: 'Detect automatically', automatic: 'Automatic', english: 'English', vietnamese: 'Vietnamese',
     chinese: 'Chinese', chineseSimplified: 'Chinese (Simplified)', chineseTraditional: 'Chinese (Traditional)',
@@ -62,7 +66,7 @@ const messages = {
     routeChosen: '{route} selected. You can always change it before translating.',
     currentChapter: 'Current chapter', snapshotReady: 'Comic images are ready. Translation starts only when you click.',
     noComicImages: 'No sufficiently large comic images were found on this page.',
-    images: '{count} images', translatingQueue: 'Translating {current}/{total} · {queued} waiting',
+    images: '{count} images', translatingQueue: 'Translated {done}/{total} · {queued} remaining',
     ocr: 'Reading text on this Mac · images are not uploaded to cloud',
     queued: 'Text detected · waiting for translation', translating: 'Translating recognized text in one batch',
     translatingLocal: 'Apple Translation is processing the batch on this Mac',
@@ -91,6 +95,7 @@ const messages = {
     addressFormAria: 'Mở một chương truyện', back: 'Quay lại', addressPlaceholder: 'Dán link chương truyện…', open: 'Mở',
     navigation: 'Điều hướng', read: 'Đọc', library: 'Thư viện', settings: 'Cài đặt', privateSession: 'Phiên riêng tư',
     change: 'Đổi', translateCurrent: 'Dịch phần đang đọc', translateAllLoaded: 'Dịch tất cả ảnh đã tải',
+    retranslateWithAnother: 'Dịch lại bằng Cloud / API',
     stopQueue: 'Dừng hàng đợi hiện tại', waitingForPage: 'Đang chờ trang truyện…',
     whereTranslate: 'Dịch chương này ở đâu?', onThisMac: 'Trên máy Mac này',
     localRouteDetail: 'Riêng tư · Apple Vision + Translation', cloudRouteDetail: 'Nhanh nhất · dùng thử không cần tài khoản',
@@ -106,6 +111,8 @@ const messages = {
     preferencesTitle: 'Chất lượng, ngôn ngữ và quyền riêng tư.', preferencesDetail: 'Model và token chỉ hiện trong phần nâng cao.',
     appLanguage: 'Ngôn ngữ ứng dụng', sourceLanguage: 'Ngôn ngữ nguồn', targetLanguage: 'Ngôn ngữ đích',
     translationProfile: 'Chế độ dịch', translationLocation: 'Nơi xử lý bản dịch', defaultRoute: 'Route mặc định',
+    savedTranslations: 'Lưu chương đã dịch', saveNone: 'Không lưu', saveFive: '5 chương gần nhất', saveTen: '10 chương gần nhất',
+    savedTranslationsHint: 'Chỉ lưu chữ dịch và vị trí OCR, không lưu ảnh truyện. Dung lượng bị giới hạn ở 2 MiB.',
     askEachTime: 'Hỏi mỗi lần', routeHint: 'Chế độ tự động chỉ dùng route bạn đã duyệt. Ứng dụng không tự chuyển sang cloud.',
     detectAutomatically: 'Tự nhận diện', automatic: 'Tự động', english: 'Tiếng Anh', vietnamese: 'Tiếng Việt',
     chinese: 'Tiếng Trung', chineseSimplified: 'Tiếng Trung (Giản thể)', chineseTraditional: 'Tiếng Trung (Phồn thể)',
@@ -133,7 +140,7 @@ const messages = {
     routeChosen: 'Đã chọn {route}. Bạn luôn có thể đổi trước khi dịch.',
     currentChapter: 'Chương đang đọc', snapshotReady: 'Ảnh truyện đã sẵn sàng. Dịch chỉ chạy khi bạn bấm.',
     noComicImages: 'Không thấy ảnh truyện đủ lớn trên trang này.',
-    images: '{count} ảnh', translatingQueue: 'Đang dịch {current}/{total} · {queued} đang chờ',
+    images: '{count} ảnh', translatingQueue: 'Đã dịch {done}/{total} · còn {queued} ảnh',
     ocr: 'Đang đọc chữ trên máy · ảnh không được tải lên cloud',
     queued: 'Đã đọc chữ · đang xếp hàng dịch', translating: 'Đang dịch văn bản theo một lô',
     translatingLocal: 'Apple Translation đang dịch cả lô ngay trên máy',
@@ -270,6 +277,7 @@ function renderState() {
   $('#target-language').value = state.settings.targetLanguage
   $('#source-language').value = state.settings.sourceLanguage || 'auto'
   $('#profile').value = state.settings.profile
+  $('#translation-cache-limit').value = String(state.settings.translationCacheLimit ?? 10)
   $('#default-route').value = state.settings.route
   $('#broker-endpoint').value = state.settings.brokerEndpoint || 'http://127.0.0.1:4100'
   $('#token-status').textContent = state.settings.tokenConfigured ? t('tokenStored') : t('tokenNotSynced')
@@ -336,6 +344,7 @@ function ensureRoute(command) {
 
 function renderReceipt() {
   if (!latestReceipt) return
+  $('#retranslate-current').hidden = false
   const imageLocation = latestReceipt.route === 'managed' ? 'Manga Sub Cloud' : t('thisMac')
   const translatedBy = latestReceipt.local
     ? t('appleOnDevice')
@@ -352,7 +361,12 @@ async function chooseRoute(route) {
   $('#route-chooser').hidden = true
   toast(t('routeChosen', { route: routeName(route) }))
   const command = pendingTranslationCommand
+  const shouldRetranslate = pendingRetranslation
   pendingTranslationCommand = null
+  pendingRetranslation = false
+  if (shouldRetranslate) {
+    await window.comicSub.readerCommand({ type: 'reset-translations' })
+  }
   if (command) ensureRoute(command)
 }
 
@@ -372,7 +386,7 @@ function updateReaderStatus(payload, remember = true) {
     ensureRoute(payload.command || 'translate-current')
   }
   if (payload.type === 'queue') {
-    $('#queue-status').innerHTML = `<span class="pulse"></span><span>${t('translatingQueue', { current: payload.done + 1, total: payload.total, queued: payload.queued })}</span>`
+    $('#queue-status').innerHTML = `<span class="pulse"></span><span>${t('translatingQueue', { done: payload.done, total: payload.total, queued: payload.queued })}</span>`
     $('#queue-value').textContent = `${payload.done}/${payload.total}`
   }
   if (payload.type === 'broker-progress') {
@@ -413,6 +427,12 @@ function bind() {
   $$('.nav-item').forEach((button) => button.addEventListener('click', () => setTab(button.dataset.tab)))
   $('#translate-current').addEventListener('click', () => ensureRoute('translate-current'))
   $('#translate-all').addEventListener('click', () => ensureRoute('open-all-confirm'))
+  $('#retranslate-current').addEventListener('click', () => {
+    pendingTranslationCommand = 'translate-current'
+    pendingRetranslation = true
+    $('#route-chooser').hidden = false
+    $('#route-chooser').scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  })
   $('#cancel-translation').addEventListener('click', () => window.comicSub.readerCommand({ type: 'pause' }))
   $('#change-route').addEventListener('click', () => { $('#route-chooser').hidden = !$('#route-chooser').hidden })
   $$('#route-chooser [data-route]').forEach((button) => button.addEventListener('click', () => chooseRoute(button.dataset.route)))
@@ -424,6 +444,7 @@ function bind() {
   $('#target-language').addEventListener('change', (event) => saveSettings({ targetLanguage: event.target.value }))
   $('#source-language').addEventListener('change', (event) => saveSettings({ sourceLanguage: event.target.value }))
   $('#profile').addEventListener('change', (event) => saveSettings({ profile: event.target.value }))
+  $('#translation-cache-limit').addEventListener('change', (event) => saveSettings({ translationCacheLimit: Number(event.target.value) }))
   $('#default-route').addEventListener('change', (event) => saveSettings({ route: event.target.value }))
   $('#broker-endpoint').addEventListener('change', (event) => saveSettings({ brokerEndpoint: event.target.value }))
   $('#save-token').addEventListener('click', async () => { try { const result = await window.comicSub.setToken($('#provider-token').value); $('#provider-token').value = ''; state.settings.tokenConfigured = result.tokenConfigured; renderState(); toast(t('tokenSaved')) } catch (error) { toast(error.message) } })
@@ -471,6 +492,13 @@ function bind() {
   $('#library-list').addEventListener('click', async (event) => { const resumeId = event.target.dataset.resume; const deleteId = event.target.dataset.delete; if (resumeId) { const item = state.history.find((entry) => entry.id === resumeId); await window.comicSub.resume(item); setTab('reader') } if (deleteId) { state.history = await window.comicSub.clearHistory(deleteId); renderLibrary() } })
   $$('#migration-banner [data-choice]').forEach((button) => button.addEventListener('click', async () => { state = await window.comicSub.chooseModelMigration(button.dataset.choice); renderState(); toast(t('modelUpdated')) }))
   window.addEventListener('resize', applyPanelLayout)
+  window.addEventListener('keydown', (event) => {
+    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'l') {
+      event.preventDefault()
+      $('#address-input').focus()
+      $('#address-input').select()
+    }
+  })
   document.querySelectorAll('.sidebar,.inspector,.reader-frame').forEach((element) => {
     element.addEventListener('transitionend', syncReaderBounds)
   })

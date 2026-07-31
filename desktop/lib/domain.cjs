@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   byoProvider: 'gemini',
   byoBaseUrl: 'https://api.deepseek.com/v1',
   byoModel: '',
+  translationCacheLimit: 10,
   privateMode: false,
 })
 
@@ -54,6 +55,11 @@ function migrateSettings(saved = {}) {
   }
   if (!['ask', 'local', 'managed', 'byo'].includes(next.route)) {
     next.route = 'ask'
+  }
+  if (![0, 5, 10].includes(Number(next.translationCacheLimit))) {
+    next.translationCacheLimit = DEFAULT_SETTINGS.translationCacheLimit
+  } else {
+    next.translationCacheLimit = Number(next.translationCacheLimit)
   }
   if (!saved.brokerEndpoint || saved.brokerEndpoint === 'http://127.0.0.1:4100') {
     next.brokerEndpoint = DEFAULT_SETTINGS.brokerEndpoint

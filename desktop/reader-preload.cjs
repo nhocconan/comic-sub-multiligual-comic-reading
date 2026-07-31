@@ -14,6 +14,8 @@ let snapshotId = `snapshot:${crypto.randomUUID()}`
 const liveOverlays = new Set()
 const overlayLayers = new Map()
 let overlayRelayoutFrame = 0
+let activeRequestIds = new Set()
+let activeRequestTotal = 0
 
 const readerMessages = {
   en: {
@@ -34,6 +36,7 @@ const readerMessages = {
     stopping: 'Stopping jobs…',
     progress: '{state} · {count} images',
     translatedCount: 'Translated {done}/{total}',
+    readyToRetranslate: 'Ready to translate again with the selected engine',
     jobFailed: 'Translation failed',
     cancelled: 'Jobs cancelled · original remains visible',
   },
@@ -55,6 +58,7 @@ const readerMessages = {
     stopping: 'Đang dừng job…',
     progress: '{state} · {count} ảnh',
     translatedCount: 'Đã dịch {done}/{total}',
+    readyToRetranslate: 'Sẵn sàng dịch lại bằng engine đã chọn',
     jobFailed: 'Dịch thất bại',
     cancelled: 'Đã hủy job · ảnh gốc vẫn hiển thị',
   },
@@ -260,6 +264,8 @@ function startAll() { scan(); requestBroker('all', candidates.filter((item) => !
 
 function requestBroker(scope, items) {
   if (!items.length) {
+    activeRequestIds = new Set()
+    activeRequestTotal = 0
     createUi().status.textContent = readerText('alreadyTranslated')
     ipcRenderer.send('reader:status', {
       type: 'job-complete',
@@ -270,7 +276,15 @@ function requestBroker(scope, items) {
     })
     return
   }
+  activeRequestIds = new Set(items.map((item) => item.candidateId))
+  activeRequestTotal = activeRequestIds.size
   createUi().status.textContent = readerText('preparing', { count: items.length })
+  ipcRenderer.send('reader:status', {
+    type: 'queue',
+    done: 0,
+    total: activeRequestTotal,
+    queued: activeRequestTotal,
+  })
   ipcRenderer.send('reader:status', { type: 'translate-request', scope, snapshotId, navigationId, candidateIds: items.map((item) => item.candidateId) })
 }
 
@@ -430,12 +444,19 @@ ipcRenderer.on('reader:command', (_event, command = {}) => {
   if (command.type === 'translate-all' || command.type === 'open-all-confirm') openAllConfirm()
   if (command.type === 'pause') { ipcRenderer.send('reader:status', { type: 'translate-cancel' }); createUi().status.textContent = readerText('stopping') }
   if (command.type === 'reveal-original') toggleSource()
+  if (command.type === 'reset-translations') {
+    for (const item of candidates) {
+      item.translated = false
+      item.status = 'ready'
+    }
+    createUi().status.textContent = readerText('readyToRetranslate')
+  }
   if (command.type === 'broker-progress' && command.state) createUi().status.textContent = readerText('progress', { state: command.state, count: candidates.length })
   if (command.type === 'attach-result') {
     const item = candidates.find((candidate) => candidate.candidateId === command.candidateId)
     if (!item) return
     const layer = overlayLayers.get(item.candidateId)
-    for (const overlay of layer?.querySelectorAll?.(`[data-comic-sub-job="${command.jobId}"]`) || []) {
+    for (const overlay of layer?.querySelectorAll?.('.comic-sub-overlay') || []) {
       liveOverlays.delete(overlay)
       overlay.remove()
     }
@@ -444,14 +465,30 @@ ipcRenderer.on('reader:command', (_event, command = {}) => {
       overlay.dataset.comicSubJob = command.jobId
     }
     item.translated = true; item.status = 'done'
+    activeRequestIds.delete(item.candidateId)
     createUi().status.textContent = readerText('translatedCount', {
       done: candidates.filter((candidate) => candidate.translated).length,
       total: candidates.length,
     })
-    ipcRenderer.send('reader:status', { type: 'job-complete', candidateIndex: activeIndex, candidateCount: candidates.length, title: document.title })
+    if (activeRequestTotal > 0 && activeRequestIds.size > 0) {
+      ipcRenderer.send('reader:status', {
+        type: 'queue',
+        done: activeRequestTotal - activeRequestIds.size,
+        total: activeRequestTotal,
+        queued: activeRequestIds.size,
+      })
+    } else {
+      activeRequestIds = new Set()
+      activeRequestTotal = 0
+      ipcRenderer.send('reader:status', { type: 'job-complete', candidateIndex: activeIndex, candidateCount: candidates.length, title: document.title })
+    }
   }
   if (command.type === 'broker-failure') createUi().status.textContent = command.message || readerText('jobFailed')
-  if (command.type === 'broker-cancelled') createUi().status.textContent = readerText('cancelled')
+  if (command.type === 'broker-cancelled') {
+    activeRequestIds = new Set()
+    activeRequestTotal = 0
+    createUi().status.textContent = readerText('cancelled')
+  }
   if (command.type === 'resume') {
     scan(); const item = candidates[Number(command.candidateIndex) || 0]
     item?.image.scrollIntoView({ block: 'center', behavior: 'smooth' })
