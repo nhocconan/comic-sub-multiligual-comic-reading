@@ -10,6 +10,10 @@ data class ReaderSettings(
     val targetLanguage: String = "vi",
     val route: String = "ask",
     val model: String = ReaderPolicy.DEFAULT_MODEL,
+    val byoProvider: String = "gemini",
+    val byoBaseUrl: String = "",
+    val byoModel: String = "",
+    val byoApiKey: String = "",
     val privateSession: Boolean = false,
     val researchConsent: Boolean? = null,
 )

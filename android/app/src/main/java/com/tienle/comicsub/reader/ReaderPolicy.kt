@@ -12,6 +12,7 @@ object ReaderPolicy {
     const val TOOLBAR_ACTION_WIDTH_DP = 44
     const val TOOLBAR_ACTION_COUNT = 5
     const val TOOLBAR_HORIZONTAL_CHROME_DP = 26
+    val BYO_PROVIDERS = setOf("gemini", "openai", "anthropic", "openai-compatible")
 
     fun toolbarAddressWidthDp(screenWidthDp: Int): Int =
         screenWidthDp - (TOOLBAR_ACTION_WIDTH_DP * TOOLBAR_ACTION_COUNT) -
@@ -57,6 +58,17 @@ object ReaderPolicy {
         val host = uri.host.lowercase()
         return host == "localhost" || host == "127.0.0.1" || host == "10.0.2.2" ||
             host.startsWith("192.168.") || host.startsWith("10.")
+    }
+
+    fun validByoBaseUrl(provider: String, value: String): Boolean {
+        if (provider != "openai-compatible") return provider in BYO_PROVIDERS
+        val uri = runCatching { URI(value.trim().trimEnd('/')) }.getOrNull() ?: return false
+        if (uri.userInfo != null || uri.query != null || uri.fragment != null || uri.host.isNullOrBlank()) {
+            return false
+        }
+        if (uri.scheme == "https") return true
+        if (uri.scheme != "http") return false
+        return uri.host.lowercase() in setOf("localhost", "127.0.0.1", "::1", "10.0.2.2")
     }
 
     fun safeDiagnosticId(value: String): String =

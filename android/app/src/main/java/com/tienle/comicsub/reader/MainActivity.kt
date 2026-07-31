@@ -31,6 +31,7 @@ import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.ArrayAdapter
+import android.widget.AdapterView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -66,6 +67,7 @@ class MainActivity : ComponentActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val broker = BrokerClient()
+    private val byoProvider = ByoProviderClient()
     private val deviceOcr = OnDeviceOcr()
     private lateinit var deviceTranslator: OnDeviceTranslator
     private val stopAfterCurrent = AtomicBoolean(false)
@@ -450,12 +452,12 @@ class MainActivity : ComponentActivity() {
                 "Trên thiết bị — OCR và dịch bằng ML Kit",
             ),
             t(
-                "Private server — only OCR text and coordinates are sent",
-                "Server riêng — chỉ gửi chữ OCR và tọa độ",
-            ),
-            t(
                 "Manga Sub Cloud — only OCR text and coordinates are sent",
                 "Manga Sub Cloud — chỉ gửi chữ OCR và tọa độ",
+            ),
+            t(
+                "Your API key — local OCR; only text and coordinates leave",
+                "API key của bạn — OCR local; chỉ chữ và tọa độ rời máy",
             ),
         )
         AlertDialog.Builder(this)
@@ -466,8 +468,8 @@ class MainActivity : ComponentActivity() {
                 val selected = (dialog as AlertDialog).listView.checkedItemPosition
                 settings = settings.copy(route = when (selected) {
                     0 -> "device"
-                    1 -> "paired"
-                    else -> "managed"
+                    1 -> "managed"
+                    else -> "byo"
                 })
                 store.save(settings)
                 action()
@@ -493,6 +495,18 @@ class MainActivity : ComponentActivity() {
         translateButton.isEnabled = false
         worker.execute {
             try {
+                if (settings.route == "byo") {
+                    runByoQueueBlocking(candidates, documentUrl)
+                    mainHandler.post {
+                        statusText(
+                            t(
+                                "Completed $activeQueueDone/$activeQueueTotal images.",
+                                "Đã hoàn tất $activeQueueDone/$activeQueueTotal ảnh.",
+                            ),
+                        )
+                    }
+                    return@execute
+                }
                 val deviceOnly = settings.route == "device"
                 var series = if (deviceOnly) null else runCatching {
                     broker.bootstrapSeries(settings, documentTitle, documentUrl, emptyList())
@@ -630,6 +644,70 @@ class MainActivity : ComponentActivity() {
                     progress.visibility = View.GONE
                     translateButton.isEnabled = true
                 }
+            }
+        }
+    }
+
+    private fun runByoQueueBlocking(
+        candidates: List<ComicCandidate>,
+        documentUrl: String,
+    ) {
+        val pages = mutableListOf<Pair<ComicCandidate, OnDeviceOcrPage>>()
+        for ((position, candidate) in candidates.withIndex()) {
+            if (stopAfterCurrent.get() && position > 0) break
+            mainHandler.post {
+                progress.progress = ((position.toDouble() / candidates.size) * 45).toInt()
+                statusText(
+                    t(
+                        "Local OCR ${position + 1}/${candidates.size} — images stay on this device…",
+                        "OCR local ${position + 1}/${candidates.size} — ảnh luôn ở thiết bị…",
+                    ),
+                    busy = true,
+                )
+            }
+            val asset = broker.downloadCandidate(candidate, documentUrl)
+            pages += candidate to deviceOcr.recognizeBlocking(asset)
+        }
+        mainHandler.post {
+            progress.progress = 55
+            statusText(
+                t(
+                    "Sending one text-only batch to ${providerLabel(settings.byoProvider)}…",
+                    "Đang gửi một batch chỉ có chữ tới ${providerLabel(settings.byoProvider)}…",
+                ),
+                busy = true,
+            )
+        }
+        val result = byoProvider.translatePages(settings, pages)
+        pages.forEachIndexed { index, (candidate, page) ->
+            val regions = result.regionsByCandidate[candidate.id].orEmpty()
+            val receipt = JobReceipt(
+                jobId = "byo-${java.util.UUID.randomUUID()}",
+                batchId = "byo-text-batch",
+                status = "SETTLED",
+                requestedModel = settings.byoModel.ifBlank { result.model },
+                resolvedModel = result.model,
+                locus = "byo",
+                diagnosticId = "byo-${java.util.UUID.randomUUID()}",
+                regions = regions,
+                sourceRegions = page.regions,
+            )
+            lastReceipt = receipt
+            activeQueueDone = index + 1
+            val json = JSONArray().apply { regions.forEach { put(it.toJson()) } }
+            mainHandler.post {
+                webView.evaluateJavascript(
+                    ReaderScripts.attachOverlay(candidate.id, json.toString()),
+                    null,
+                )
+                progress.progress = 55 + (((index + 1).toDouble() / pages.size) * 45).toInt()
+                statusText(
+                    t(
+                        "Translated ${index + 1}/${pages.size} · Your API key",
+                        "Đã dịch ${index + 1}/${pages.size} · API key của bạn",
+                    ),
+                    busy = index + 1 < pages.size,
+                )
             }
         }
     }
@@ -855,25 +933,89 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(22), dp(8), dp(22), 0)
         }
         val endpoint = field(t("Server endpoint", "Địa chỉ server"), settings.endpoint)
-        val token = field(t("Auth token", "Token xác thực"), settings.authKey, password = true)
+        val token = field(
+            if (settings.authKey.isBlank()) {
+                t("Cloud auth token", "Token xác thực cloud")
+            } else {
+                t("Cloud auth token saved — type to replace", "Đã lưu token cloud — nhập để thay")
+            },
+            "",
+            password = true,
+        )
         val model = field(t("Model", "Model"), settings.model)
         val route = Spinner(this)
         val routeLabels = listOf(
             t("Ask every time", "Hỏi mỗi lần"),
             t("On this device", "Trên thiết bị"),
-            t("Private server", "Server riêng"),
             "Manga Sub Cloud",
+            t("Your API key", "API key của bạn"),
         )
         route.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, routeLabels)
-        route.setSelection(listOf("ask", "device", "paired", "managed").indexOf(settings.route).coerceAtLeast(0))
+        val routeValues = listOf("ask", "device", "managed", "byo")
+        route.setSelection(routeValues.indexOf(settings.route).coerceAtLeast(0))
+        val provider = Spinner(this)
+        val providerValues = listOf("gemini", "openai", "anthropic", "openai-compatible")
+        val providerLabels = listOf(
+            "Google Gemini",
+            "OpenAI",
+            "Anthropic Claude",
+            t("OpenAI-compatible", "Tương thích OpenAI"),
+        )
+        provider.adapter =
+            ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, providerLabels)
+        provider.setSelection(providerValues.indexOf(settings.byoProvider).coerceAtLeast(0))
+        val byoBaseUrl = field(
+            t("API base URL (OpenAI-compatible)", "API base URL (tương thích OpenAI)"),
+            settings.byoBaseUrl,
+        )
+        val byoKey = field(
+            if (settings.byoApiKey.isBlank()) {
+                t("Provider API key", "API key của provider")
+            } else {
+                t("API key saved securely — type to replace", "API key đã lưu bảo mật — nhập để thay")
+            },
+            "",
+            password = true,
+        )
+        val byoModel = field(
+            t("Provider model — refresh to discover", "Model provider — refresh để lấy mới"),
+            settings.byoModel,
+        )
+        val refreshModels = Button(this).apply {
+            text = t("Refresh provider models", "Lấy danh sách model mới")
+            isAllCaps = false
+        }
+        val clearByoKey = Button(this).apply {
+            text = t("Remove saved provider key", "Xóa API key đã lưu")
+            isAllCaps = false
+            visibility = if (settings.byoApiKey.isBlank()) View.GONE else View.VISIBLE
+        }
+        fun updateProviderFields() {
+            val compatible = providerValues[provider.selectedItemPosition] == "openai-compatible"
+            byoBaseUrl.visibility = if (compatible) View.VISIBLE else View.GONE
+        }
+        provider.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) =
+                updateProviderFields()
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+        updateProviderFields()
         layout.addView(label(t("Processing route", "Nơi xử lý")))
         layout.addView(route)
         layout.addView(endpoint)
         layout.addView(token)
         layout.addView(model)
+        layout.addView(label(t("Your API key", "API key của bạn")))
+        layout.addView(provider)
+        layout.addView(byoBaseUrl)
+        layout.addView(byoKey)
+        layout.addView(byoModel)
+        layout.addView(refreshModels)
+        layout.addView(clearByoKey)
+        val scroll = ScrollView(this).apply { addView(layout) }
         AlertDialog.Builder(this)
             .setTitle(t("Translation settings", "Cài đặt dịch"))
-            .setView(layout)
+            .setView(scroll)
             .setNegativeButton(t("Cancel", "Hủy"), null)
             .setPositiveButton(t("Save", "Lưu"), null)
             .create()
@@ -888,11 +1030,24 @@ class MainActivity : ComponentActivity() {
                             )
                             return@setOnClickListener
                         }
+                        val nextProvider = providerValues[provider.selectedItemPosition]
+                        val nextBaseUrl = byoBaseUrl.text.toString().trimEnd('/')
+                        if (!ReaderPolicy.validByoBaseUrl(nextProvider, nextBaseUrl)) {
+                            byoBaseUrl.error = t(
+                                "Use HTTPS; local OpenAI-compatible HTTP is loopback-only.",
+                                "Dùng HTTPS; HTTP local tương thích OpenAI chỉ dành cho loopback.",
+                            )
+                            return@setOnClickListener
+                        }
                         settings = settings.copy(
                             endpoint = nextEndpoint,
-                            authKey = token.text.toString(),
+                            authKey = token.text.toString().ifBlank { settings.authKey },
                             model = model.text.toString().ifBlank { ReaderPolicy.DEFAULT_MODEL },
-                            route = listOf("ask", "device", "paired", "managed")[route.selectedItemPosition],
+                            route = routeValues[route.selectedItemPosition],
+                            byoProvider = nextProvider,
+                            byoBaseUrl = nextBaseUrl,
+                            byoModel = byoModel.text.toString().trim(),
+                            byoApiKey = byoKey.text.toString().ifBlank { settings.byoApiKey },
                         )
                         store.save(settings)
                         statusText("${languageLabel(settings.targetLanguage)} · ${routeLabel(settings.route)}")
@@ -900,6 +1055,70 @@ class MainActivity : ComponentActivity() {
                     }
                 }
                 dialog.show()
+                clearByoKey.setOnClickListener {
+                    store.clearByoApiKey()
+                    settings = settings.copy(byoApiKey = "")
+                    byoKey.setText("")
+                    byoKey.hint = t("Provider API key", "API key của provider")
+                    clearByoKey.visibility = View.GONE
+                    Toast.makeText(
+                        this,
+                        t("Saved provider key removed.", "Đã xóa API key."),
+                        Toast.LENGTH_SHORT,
+                    ).show()
+                }
+                refreshModels.setOnClickListener {
+                    val currentProvider = providerValues[provider.selectedItemPosition]
+                    val temporary = settings.copy(
+                        byoProvider = currentProvider,
+                        byoBaseUrl = byoBaseUrl.text.toString().trimEnd('/'),
+                        byoApiKey = byoKey.text.toString().ifBlank { settings.byoApiKey },
+                    )
+                    refreshModels.isEnabled = false
+                    refreshModels.text = t("Fetching models…", "Đang lấy model…")
+                    worker.execute {
+                        runCatching { byoProvider.listModels(temporary) }
+                            .onSuccess { models ->
+                                mainHandler.post {
+                                    refreshModels.isEnabled = true
+                                    refreshModels.text =
+                                        t("Refresh provider models", "Lấy danh sách model mới")
+                                    if (models.isEmpty()) {
+                                        Toast.makeText(
+                                            this,
+                                            t("No text models were returned.", "Provider không trả model văn bản."),
+                                            Toast.LENGTH_LONG,
+                                        ).show()
+                                    } else {
+                                        val recommended =
+                                            byoProvider.recommendedModel(models, currentProvider)
+                                        val labels = models.map {
+                                            if (it.id == recommended) "${it.id} · recommended" else it.id
+                                        }.toTypedArray()
+                                        AlertDialog.Builder(this)
+                                            .setTitle(t("Choose a live model", "Chọn model hiện có"))
+                                            .setItems(labels) { _, index ->
+                                                byoModel.setText(models[index].id)
+                                            }
+                                            .setNegativeButton(t("Close", "Đóng"), null)
+                                            .show()
+                                    }
+                                }
+                            }
+                            .onFailure { error ->
+                                mainHandler.post {
+                                    refreshModels.isEnabled = true
+                                    refreshModels.text =
+                                        t("Refresh provider models", "Lấy danh sách model mới")
+                                    Toast.makeText(
+                                        this,
+                                        userFacingError(error),
+                                        Toast.LENGTH_LONG,
+                                    ).show()
+                                }
+                            }
+                    }
+                }
             }
     }
 
@@ -939,6 +1158,10 @@ class MainActivity : ComponentActivity() {
             "managed" -> "Manga Sub Cloud"
             "paired" -> t("Private server", "Server riêng")
             "device" -> t("On this device", "Trên thiết bị")
+            "byo" -> t(
+                "Your API key · ${providerLabel(settings.byoProvider)}",
+                "API key của bạn · ${providerLabel(settings.byoProvider)}",
+            )
             else -> receipt.locus
         }
         AlertDialog.Builder(this)
@@ -1059,6 +1282,7 @@ class MainActivity : ComponentActivity() {
         "device" -> t("On-device OCR + translation", "OCR + dịch trên thiết bị")
         "paired" -> t("Private server · local OCR", "Server riêng · OCR local")
         "managed" -> t("Manga Sub Cloud · local OCR", "Manga Sub Cloud · OCR local")
+        "byo" -> t("Your API key · local OCR", "API key của bạn · OCR local")
         else -> t("Ask before sending", "Hỏi trước khi gửi")
     }
 
@@ -1076,6 +1300,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun userFacingError(error: Throwable): String {
+        if (error is ByoProviderException) {
+            return if (settings.uiLanguage == "vi") error.vietnamese else error.english
+        }
         val raw = error.message.orEmpty().trim()
         if (raw.isBlank()) return t("Unknown error", "Lỗi không xác định")
         if (settings.uiLanguage == "vi") return raw
@@ -1100,6 +1327,13 @@ class MainActivity : ComponentActivity() {
                 "Cloud translation timed out."
             else -> raw
         }
+    }
+
+    private fun providerLabel(provider: String): String = when (provider) {
+        "gemini" -> "Google Gemini"
+        "openai" -> "OpenAI"
+        "anthropic" -> "Anthropic Claude"
+        else -> t("OpenAI-compatible", "Tương thích OpenAI")
     }
 
     private fun t(english: String, vietnamese: String): String =
