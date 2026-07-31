@@ -1,5 +1,7 @@
 'use strict'
 
+const { resultHasUntranslatedRegions } = require('./translation-quality.cjs')
+
 const MAX_CACHE_BYTES = 2 * 1024 * 1024
 
 function cacheLimit(value) {
@@ -74,7 +76,8 @@ function recordTranslation(cache, {
   const cleanPageUrl = boundedText(pageUrl, 4_096)
   const cleanSourceUrl = boundedText(sourceUrl, 4_096)
   const cleanTarget = boundedText(targetLanguage, 32)
-  if (!cleanResult || !cleanPageUrl || !cleanSourceUrl || !cleanTarget) {
+  if (!cleanResult || !cleanPageUrl || !cleanSourceUrl || !cleanTarget
+    || resultHasUntranslatedRegions(cleanResult, cleanTarget)) {
     return pruneTranslationCache(cache, limit)
   }
   const previous = (Array.isArray(cache) ? cache : []).find(
@@ -108,6 +111,12 @@ function pruneTranslationCache(cache, limitValue = 10) {
   if (!limit) return []
   const entries = (Array.isArray(cache) ? cache : [])
     .filter((entry) => entry?.pageUrl && entry?.targetLanguage && Array.isArray(entry?.items))
+    .map((entry) => ({
+      ...entry,
+      items: entry.items.filter((item) =>
+        item?.result && !resultHasUntranslatedRegions(item.result, entry.targetLanguage)),
+    }))
+    .filter((entry) => entry.items.length)
     .slice(0, limit)
   return fitByteBudget(entries)
 }
@@ -121,7 +130,7 @@ function cachedResults(cache, snapshot, targetLanguage) {
   const bySource = new Map((chapter.items || []).map((item) => [item.sourceUrl, item]))
   return (snapshot?.candidates || []).flatMap((candidate) => {
     const cached = bySource.get(candidate?.sourceUrl)
-    return cached ? [{
+    return cached && !resultHasUntranslatedRegions(cached.result, targetLanguage) ? [{
       candidateId: candidate.candidateId,
       sourceUrl: candidate.sourceUrl,
       result: cached.result,

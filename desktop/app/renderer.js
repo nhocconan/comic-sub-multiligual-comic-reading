@@ -21,7 +21,7 @@ const messages = {
     addressFormAria: 'Open a comic chapter', back: 'Back', addressPlaceholder: 'Paste a chapter URL…', open: 'Open',
     navigation: 'Navigation', read: 'Read', library: 'Library', settings: 'Settings', privateSession: 'Private session',
     change: 'Change', translateCurrent: 'Translate current view', translateAllLoaded: 'Translate all loaded images',
-    retranslateWithAnother: 'Translate again with Cloud / API',
+    retranslateWithAnother: 'Translate all again with Cloud / API',
     stopQueue: 'Stop current queue', waitingForPage: 'Waiting for a comic page…',
     whereTranslate: 'Where should this chapter be translated?', onThisMac: 'On this Mac',
     localRouteDetail: 'Private · Apple Vision + Translation', cloudRouteDetail: 'Fastest · try it without an account',
@@ -95,7 +95,7 @@ const messages = {
     addressFormAria: 'Mở một chương truyện', back: 'Quay lại', addressPlaceholder: 'Dán link chương truyện…', open: 'Mở',
     navigation: 'Điều hướng', read: 'Đọc', library: 'Thư viện', settings: 'Cài đặt', privateSession: 'Phiên riêng tư',
     change: 'Đổi', translateCurrent: 'Dịch phần đang đọc', translateAllLoaded: 'Dịch tất cả ảnh đã tải',
-    retranslateWithAnother: 'Dịch lại bằng Cloud / API',
+    retranslateWithAnother: 'Dịch lại tất cả bằng Cloud / API',
     stopQueue: 'Dừng hàng đợi hiện tại', waitingForPage: 'Đang chờ trang truyện…',
     whereTranslate: 'Dịch chương này ở đâu?', onThisMac: 'Trên máy Mac này',
     localRouteDetail: 'Riêng tư · Apple Vision + Translation', cloudRouteDetail: 'Nhanh nhất · dùng thử không cần tài khoản',
@@ -428,7 +428,7 @@ function bind() {
   $('#translate-current').addEventListener('click', () => ensureRoute('translate-current'))
   $('#translate-all').addEventListener('click', () => ensureRoute('open-all-confirm'))
   $('#retranslate-current').addEventListener('click', () => {
-    pendingTranslationCommand = 'translate-current'
+    pendingTranslationCommand = 'translate-all-now'
     pendingRetranslation = true
     $('#route-chooser').hidden = false
     $('#route-chooser').scrollIntoView({ behavior: 'smooth', block: 'nearest' })

@@ -77,3 +77,19 @@ test('cache is disabled at zero and stays inside a hard two MiB budget', () => {
   }
   assert.ok(Buffer.byteLength(JSON.stringify(cache), 'utf8') <= MAX_CACHE_BYTES)
 })
+
+test('cache never restores an unchanged Chinese result as translated Vietnamese', () => {
+  const bad = [{
+    pageUrl: 'https://reader.test/chapter/1',
+    targetLanguage: 'vi-VN',
+    items: [{
+      sourceUrl: 'https://cdn.test/1.jpg',
+      result: result('成功'),
+      receipt: { route: 'byo' },
+    }],
+  }]
+  assert.deepEqual(cachedResults(bad, {
+    pageUrl: 'https://reader.test/chapter/1',
+    candidates: [{ candidateId: 'candidate-1', sourceUrl: 'https://cdn.test/1.jpg' }],
+  }, 'vi-VN'), [])
+})

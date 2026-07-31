@@ -176,6 +176,72 @@ test('DeepSeek translation disables default high-effort thinking and requests bo
   assert.equal(body.max_tokens, 1_024)
 })
 
+test('unchanged Chinese output is repaired once before an image is marked translated', async () => {
+  const calls = []
+  const fetchImpl = async (_url, options) => {
+    const body = JSON.parse(options.body)
+    const regions = JSON.parse(body.messages[1].content).regions
+    calls.push(regions)
+    return response({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            translations: regions.map((region) => ({
+              id: region.id,
+              text: calls.length === 1 ? region.source : 'Ồ!',
+            })),
+          }),
+        },
+      }],
+    })
+  }
+  const translated = await translateOcrPages({
+    provider: 'openai-compatible',
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-v4-flash',
+  }, 'secret', [{
+    candidateId: 'page-1',
+    ocr: {
+      page: { width: 900, height: 1_200 },
+      regions: [{ id: 'r1', source: '喔！', x: 1, y: 1, width: 10, height: 10 }],
+    },
+  }], { targetLanguage: 'Vietnamese', fetchImpl })
+  assert.equal(calls.length, 2)
+  assert.equal(translated[0].overlayRegions[0].translation, 'Ồ!')
+})
+
+test('an image fails closed when a provider copies Chinese after the repair attempt', async () => {
+  let calls = 0
+  const fetchImpl = async (_url, options) => {
+    calls += 1
+    const regions = JSON.parse(JSON.parse(options.body).messages[1].content).regions
+    return response({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            translations: regions.map((region) => ({ id: region.id, text: region.source })),
+          }),
+        },
+      }],
+    })
+  }
+  await assert.rejects(
+    translateOcrPages({
+      provider: 'openai-compatible',
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'deepseek-v4-flash',
+    }, 'secret', [{
+      candidateId: 'page-1',
+      ocr: {
+        page: { width: 900, height: 1_200 },
+        regions: [{ id: 'r1', source: '片刻后……', x: 1, y: 1, width: 10, height: 10 }],
+      },
+    }], { targetLanguage: 'Vietnamese', fetchImpl }),
+    (error) => error.code === 'BYO_OUTPUT_UNTRANSLATED',
+  )
+  assert.equal(calls, 2)
+})
+
 test('generic OpenAI-compatible translation does not inject DeepSeek-only controls', async () => {
   let body
   const fetchImpl = async (_url, options) => {
