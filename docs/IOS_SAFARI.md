@@ -1,4 +1,4 @@
-# Comic Sub for iPhone and iPad
+# Manga Sub for iPhone and iPad
 
 The Apple project is at:
 
@@ -52,9 +52,9 @@ layout. Simulator builds do not require an Apple Developer Program membership.
    - App: `com.tienle.comicsub`
    - Extension: `com.tienle.comicsub.Extension`
 5. Select the connected device and press Run.
-6. On the device, open **Settings → Apps → Safari → Extensions → Comic Sub**.
+6. On the device, open **Settings → Apps → Safari → Extensions → Manga Sub**.
 7. Enable it and grant access to the comic site.
-8. In Safari, open Comic Sub from the extensions button. Under settings, enter
+8. In Safari, open Manga Sub from the extensions button. Under settings, enter
    the remote backend URL and optional auth key.
 
 If the bundle IDs are already owned by another Apple account, change the common

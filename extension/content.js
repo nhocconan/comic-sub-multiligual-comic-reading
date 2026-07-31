@@ -126,7 +126,7 @@
 
     const root = document.createElement('aside')
     root.className = 'bb-control'
-    root.setAttribute('aria-label', 'Điều khiển Comic Sub')
+    root.setAttribute('aria-label', 'Điều khiển Manga Sub')
 
     const mark = document.createElement('span')
     mark.className = 'bb-control__mark'

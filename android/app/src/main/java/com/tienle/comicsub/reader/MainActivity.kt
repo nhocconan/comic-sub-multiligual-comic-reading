@@ -55,6 +55,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var address: EditText
     private lateinit var languageButton: Button
+    private lateinit var backButton: Button
+    private lateinit var forwardButton: Button
+    private lateinit var reloadButton: Button
+    private lateinit var menuButton: Button
     private lateinit var status: TextView
     private lateinit var progress: ProgressBar
     private lateinit var translateButton: Button
@@ -111,17 +115,17 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(8), dp(5), dp(8), dp(5))
             setBackgroundColor(surface)
         }
-        val back = toolbarButton("‹", "Quay lại") {
+        backButton = toolbarButton("‹", t("Go back", "Quay lại")) {
             if (webView.canGoBack()) webView.goBack()
         }
-        val forward = toolbarButton("›", "Đi tới") {
+        forwardButton = toolbarButton("›", t("Go forward", "Đi tới")) {
             if (webView.canGoForward()) webView.goForward()
         }
-        val reload = toolbarButton("↻", "Tải lại") { webView.reload() }
+        reloadButton = toolbarButton("↻", t("Reload", "Tải lại")) { webView.reload() }
         address = EditText(this).apply {
             setSingleLine(true)
             minWidth = 0
-            hint = "Dán link chapter"
+            hint = t("Paste a chapter URL", "Dán link chapter")
             setHintTextColor(textMuted)
             setTextColor(textPrimary)
             textSize = 14f
@@ -135,19 +139,22 @@ class MainActivity : ComponentActivity() {
                 } else false
             }
         }
-        languageButton = toolbarButton(languageLabel(settings.targetLanguage), "Chọn ngôn ngữ đích") {
+        languageButton = toolbarButton(
+            languageLabel(settings.targetLanguage),
+            t("Choose translation language", "Chọn ngôn ngữ dịch"),
+        ) {
             showLanguageMenu(it)
         }
-        val menu = toolbarButton("•••", "Mở menu") { showMainMenu(it) }
-        toolbar.addView(back)
-        toolbar.addView(forward)
-        toolbar.addView(reload)
+        menuButton = toolbarButton("•••", t("Open menu", "Mở menu")) { showMainMenu(it) }
+        toolbar.addView(backButton)
+        toolbar.addView(forwardButton)
+        toolbar.addView(reloadButton)
         toolbar.addView(address, LinearLayout.LayoutParams(0, dp(46), 1f).apply {
             marginStart = dp(5)
             marginEnd = dp(5)
         })
         toolbar.addView(languageButton)
-        toolbar.addView(menu)
+        toolbar.addView(menuButton)
         root.addView(toolbar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(58)))
 
         val workspace = FrameLayout(this).apply { setBackgroundColor(Color.rgb(8, 8, 7)) }
@@ -163,7 +170,7 @@ class MainActivity : ComponentActivity() {
             background = roundedBackground(Color.argb(238, 31, 30, 26), Color.rgb(67, 64, 55), 13f)
         }
         status = TextView(this).apply {
-            text = "Sẵn sàng"
+            text = t("Ready", "Sẵn sàng")
             setTextColor(textPrimary)
             textSize = 13f
             maxLines = 2
@@ -187,8 +194,8 @@ class MainActivity : ComponentActivity() {
         })
 
         translateButton = Button(this).apply {
-            text = "✦  Dịch"
-            contentDescription = "Dịch phần đang đọc"
+            text = t("✦  Translate", "✦  Dịch")
+            contentDescription = t("Translate comic images", "Dịch ảnh truyện")
             setTextColor(surface)
             textSize = 15f
             isAllCaps = false
@@ -240,7 +247,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 android.webkit.WebSettings.LOAD_DEFAULT
             }
-            userAgentString = "$userAgentString ComicSubReader/0.3"
+            userAgentString = "$userAgentString MangaSubReader/0.3"
             safeBrowsingEnabled = true
         }
         webView.isVerticalScrollBarEnabled = false
@@ -250,14 +257,18 @@ class MainActivity : ComponentActivity() {
                 return if (uri.scheme == "http" || uri.scheme == "https") {
                     false
                 } else {
-                    Toast.makeText(this@MainActivity, "Comic Sub chỉ mở URL HTTP(S).", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(
+                        this@MainActivity,
+                        t("Manga Sub only opens HTTP(S) URLs.", "Manga Sub chỉ mở URL HTTP(S)."),
+                        Toast.LENGTH_SHORT,
+                    ).show()
                     true
                 }
             }
 
             override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
                 super.onPageStarted(view, url, favicon)
-                statusText("Đang mở trang an toàn…", busy = true)
+                statusText(t("Opening page safely…", "Đang mở trang an toàn…"), busy = true)
                 resumeOfferedFor = ""
                 stopAfterCurrent.set(true)
             }
@@ -265,11 +276,23 @@ class MainActivity : ComponentActivity() {
             override fun onPageFinished(view: WebView, url: String) {
                 super.onPageFinished(view, url)
                 address.setText(url)
-                statusText("Đang tìm ảnh truyện — chưa gửi dữ liệu đi.", busy = true)
+                statusText(
+                    t(
+                        "Finding comic images — no data has been sent.",
+                        "Đang tìm ảnh truyện — chưa gửi dữ liệu đi.",
+                    ),
+                    busy = true,
+                )
                 discover { candidates ->
                     statusText(
-                        if (candidates.isEmpty()) "Chưa tìm thấy ảnh truyện phù hợp."
-                        else "${candidates.size} ảnh truyện sẵn sàng.",
+                        if (candidates.isEmpty()) {
+                            t("No suitable comic images found.", "Chưa tìm thấy ảnh truyện phù hợp.")
+                        } else {
+                            t(
+                                "${candidates.size} comic images ready.",
+                                "${candidates.size} ảnh truyện sẵn sàng.",
+                            )
+                        },
                     )
                     maybeOfferResume(url)
                 }
@@ -278,7 +301,9 @@ class MainActivity : ComponentActivity() {
         webView.webChromeClient = object : WebChromeClient() {
             override fun onReceivedTitle(view: WebView?, title: String?) {
                 super.onReceivedTitle(view, title)
-                if (!title.isNullOrBlank()) webView.contentDescription = "Đang đọc $title"
+                if (!title.isNullOrBlank()) {
+                    webView.contentDescription = t("Reading $title", "Đang đọc $title")
+                }
             }
 
             override fun onPermissionRequest(request: PermissionRequest) {
@@ -286,7 +311,14 @@ class MainActivity : ComponentActivity() {
             }
         }
         webView.setDownloadListener { _, _, _, _, _ ->
-            Toast.makeText(this, "Comic Sub không tải hoặc xuất chapter.", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                t(
+                    "Manga Sub does not download or export chapters.",
+                    "Manga Sub không tải hoặc xuất chapter.",
+                ),
+                Toast.LENGTH_LONG,
+            ).show()
         }
         webView.setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
             val delta = scrollY - oldScrollY
@@ -301,25 +333,39 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showHome() {
+        val documentLanguage = if (settings.uiLanguage == "vi") "vi" else "en"
+        val eyebrow = t("Manga Sub Reader", "Trình đọc Manga Sub")
+        val headline = t(
+            "Read the original.<br>Translate in place.",
+            "Đọc nguyên bản.<br>Dịch ngay tại chỗ.",
+        )
+        val description = t(
+            "Paste a chapter URL into the address bar. Manga Sub only processes images you explicitly select and always keeps the originals available.",
+            "Dán link chapter vào thanh địa chỉ. Manga Sub chỉ xử lý ảnh bạn chủ động chọn và luôn giữ ảnh gốc sẵn sàng.",
+        )
+        val footnote = t(
+            "Choose a translation route when needed · No crawling or chapter downloads",
+            "Chọn tuyến dịch khi cần · Không crawl hoặc tải chapter",
+        )
         val html = """
-            <!doctype html><html lang="vi"><meta name="viewport" content="width=device-width,initial-scale=1">
+            <!doctype html><html lang="$documentLanguage"><meta name="viewport" content="width=device-width,initial-scale=1">
             <style>
               *{box-sizing:border-box}body{margin:0;background:#090907;color:#fff7e5;font:16px -apple-system,BlinkMacSystemFont,Roboto,sans-serif;min-height:100vh;display:grid;place-items:center}
               main{width:min(620px,88vw);padding:40px 0 120px}b{display:block;color:#e6b85c;font-size:14px;letter-spacing:.16em;text-transform:uppercase;margin-bottom:28px}
               h1{font-size:clamp(42px,12vw,88px);line-height:.93;letter-spacing:-.06em;margin:0 0 24px}p{color:#b7b3a8;line-height:1.6;max-width:480px}
               hr{border:0;border-top:1px solid #343229;margin:40px 0 24px}small{color:#7d796f}
-            </style><main><b>Comic Sub Reader</b><h1>Đọc nguyên bản.<br>Dịch ngay tại chỗ.</h1>
-            <p>Dán link chapter vào thanh địa chỉ. Comic Sub chỉ xử lý ảnh bạn chủ động chọn và luôn giữ ảnh gốc sẵn sàng.</p>
-            <hr><small>VI · Chọn tuyến dịch khi cần · Không crawl hoặc tải chapter</small></main></html>
+            </style><main><b>$eyebrow</b><h1>$headline</h1>
+            <p>$description</p>
+            <hr><small>$footnote</small></main></html>
         """.trimIndent()
         webView.loadDataWithBaseURL("https://home.comicsub.invalid/", html, "text/html", "utf-8", null)
-        statusText("Dán link chapter để bắt đầu đọc.")
+        statusText(t("Paste a chapter URL to start reading.", "Dán link chapter để bắt đầu đọc."))
     }
 
     private fun openUrl(value: String) {
         val normalized = ReaderPolicy.normalizedWebUrl(value)
         if (normalized == null) {
-            Toast.makeText(this, "Link không hợp lệ.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, t("Invalid URL.", "Link không hợp lệ."), Toast.LENGTH_SHORT).show()
             return
         }
         stopAfterCurrent.set(true)
@@ -328,18 +374,21 @@ class MainActivity : ComponentActivity() {
 
     private fun showTranslateMenu(anchor: View) {
         PopupMenu(this, anchor).apply {
-            menu.add("Dịch phần đang đọc")
-            menu.add("Dịch toàn bộ ảnh hiện có")
-            menu.add("Hiện/ẩn ảnh gốc")
-            if (activeJobId != null) menu.add("Dừng sau ảnh này")
+            menu.add(0, MENU_TRANSLATE_CURRENT, 0, t("Translate current", "Dịch phần đang đọc"))
+            menu.add(0, MENU_TRANSLATE_ALL, 1, t("Translate all loaded images", "Dịch toàn bộ ảnh đã tải"))
+            menu.add(0, MENU_TOGGLE_ORIGINALS, 2, t("Show/hide originals", "Hiện/ẩn ảnh gốc"))
+            if (activeJobId != null) {
+                menu.add(0, MENU_STOP_AFTER_CURRENT, 3, t("Stop after this image", "Dừng sau ảnh này"))
+            }
             setOnMenuItemClickListener { item ->
-                when (item.title.toString()) {
-                    "Dịch phần đang đọc" -> translateCurrent()
-                    "Dịch toàn bộ ảnh hiện có" -> translateAll()
-                    "Hiện/ẩn ảnh gốc" -> webView.evaluateJavascript(ReaderScripts.revealOriginal, null)
-                    "Dừng sau ảnh này" -> {
+                when (item.itemId) {
+                    MENU_TRANSLATE_CURRENT -> translateCurrent()
+                    MENU_TRANSLATE_ALL -> translateAll()
+                    MENU_TOGGLE_ORIGINALS ->
+                        webView.evaluateJavascript(ReaderScripts.revealOriginal, null)
+                    MENU_STOP_AFTER_CURRENT -> {
                         stopAfterCurrent.set(true)
-                        statusText("Sẽ dừng sau ảnh đang xử lý.")
+                        statusText(t("Will stop after the current image.", "Sẽ dừng sau ảnh đang xử lý."))
                     }
                 }
                 true
@@ -352,7 +401,7 @@ class MainActivity : ComponentActivity() {
         discover { candidates ->
             val current = ReaderPolicy.currentCandidate(candidates)
             if (current == null) {
-                statusText("Không tìm thấy ảnh truyện trong trang.")
+                statusText(t("No comic image found on this page.", "Không tìm thấy ảnh truyện trong trang."))
                 return@discover
             }
             chooseRouteThen { runQueue(listOf(current)) }
@@ -362,19 +411,28 @@ class MainActivity : ComponentActivity() {
     private fun translateAll() {
         discover { candidates ->
             if (candidates.isEmpty()) {
-                statusText("Không có ảnh truyện để dịch.")
+                statusText(t("No comic images to translate.", "Không có ảnh truyện để dịch."))
                 return@discover
             }
             val frozen = candidates.take(ReaderPolicy.MAX_BATCH_IMAGES)
             val batchSize = minOf(50, frozen.size)
             AlertDialog.Builder(this)
-                .setTitle("Dịch ${frozen.size} ảnh đang tải trong trang này")
-                .setMessage(
-                    "Ảnh xuất hiện thêm khi bạn cuộn sẽ chờ ở đợt kế tiếp và không tự phát sinh chi phí.\n\n" +
-                        "Comic Sub xử lý theo đợt tối đa 50 ảnh; đợt đầu có $batchSize ảnh.",
+                .setTitle(
+                    t(
+                        "Translate ${frozen.size} images loaded on this page",
+                        "Dịch ${frozen.size} ảnh đã tải trong trang này",
+                    ),
                 )
-                .setNegativeButton("Dịch khi đọc", null)
-                .setPositiveButton("Dịch ${frozen.size} ảnh") { _, _ ->
+                .setMessage(
+                    t(
+                        "Images loaded later as you scroll wait for the next batch and never generate costs automatically.\n\n" +
+                            "Manga Sub processes up to 50 images per batch; the first batch contains $batchSize images.",
+                        "Ảnh xuất hiện thêm khi bạn cuộn sẽ chờ ở đợt kế tiếp và không tự phát sinh chi phí.\n\n" +
+                            "Manga Sub xử lý theo đợt tối đa 50 ảnh; đợt đầu có $batchSize ảnh.",
+                    ),
+                )
+                .setNegativeButton(t("Translate as I read", "Dịch khi đọc"), null)
+                .setPositiveButton(t("Translate ${frozen.size} images", "Dịch ${frozen.size} ảnh")) { _, _ ->
                     chooseRouteThen { runQueue(frozen) }
                 }
                 .show()
@@ -387,15 +445,24 @@ class MainActivity : ComponentActivity() {
             return
         }
         val routes = arrayOf(
-            "Riêng tư trên thiết bị — OCR và dịch bằng ML Kit",
-            "Server riêng — chỉ gửi chữ OCR và tọa độ",
-            "Manga Sub Cloud — chỉ gửi chữ OCR và tọa độ",
+            t(
+                "On this device — OCR and translation with ML Kit",
+                "Trên thiết bị — OCR và dịch bằng ML Kit",
+            ),
+            t(
+                "Private server — only OCR text and coordinates are sent",
+                "Server riêng — chỉ gửi chữ OCR và tọa độ",
+            ),
+            t(
+                "Manga Sub Cloud — only OCR text and coordinates are sent",
+                "Manga Sub Cloud — chỉ gửi chữ OCR và tọa độ",
+            ),
         )
         AlertDialog.Builder(this)
-            .setTitle("Cách dịch trang này")
+            .setTitle(t("How should this page be translated?", "Cách dịch trang này"))
             .setSingleChoiceItems(routes, 0, null)
-            .setNegativeButton("Hủy", null)
-            .setPositiveButton("Bắt đầu dịch") { dialog, _ ->
+            .setNegativeButton(t("Cancel", "Hủy"), null)
+            .setPositiveButton(t("Start translating", "Bắt đầu dịch")) { dialog, _ ->
                 val selected = (dialog as AlertDialog).listView.checkedItemPosition
                 settings = settings.copy(route = when (selected) {
                     0 -> "device"
@@ -410,7 +477,11 @@ class MainActivity : ComponentActivity() {
 
     private fun runQueue(candidates: List<ComicCandidate>) {
         if (activeJobId != null) {
-            Toast.makeText(this, "Một hàng đợi đang chạy.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                t("A translation queue is already running.", "Một hàng đợi đang chạy."),
+                Toast.LENGTH_SHORT,
+            ).show()
             return
         }
         stopAfterCurrent.set(false)
@@ -439,10 +510,24 @@ class MainActivity : ComponentActivity() {
                     }
                     mainHandler.post {
                         progress.progress = ((position.toDouble() / candidates.size) * 100).toInt()
-                        statusText("Đang lấy ảnh ${position + 1}/${candidates.size}…", busy = true)
+                        statusText(
+                            t(
+                                "Fetching image ${position + 1}/${candidates.size}…",
+                                "Đang lấy ảnh ${position + 1}/${candidates.size}…",
+                            ),
+                            busy = true,
+                        )
                     }
                     val asset = broker.downloadCandidate(candidate, documentUrl)
-                    mainHandler.post { statusText("Đang OCR local ${position + 1}/${candidates.size}…", busy = true) }
+                    mainHandler.post {
+                        statusText(
+                            t(
+                                "Running local OCR ${position + 1}/${candidates.size}…",
+                                "Đang OCR local ${position + 1}/${candidates.size}…",
+                            ),
+                            busy = true,
+                        )
+                    }
                     val recognized = deviceOcr.recognizeBlocking(asset)
                     var receipt = if (deviceOnly) {
                         JobReceipt(
@@ -457,7 +542,15 @@ class MainActivity : ComponentActivity() {
                             sourceRegions = recognized.regions,
                         )
                     } else {
-                        mainHandler.post { statusText("Đang gửi chữ OCR ${position + 1}/${candidates.size}…", busy = true) }
+                        mainHandler.post {
+                            statusText(
+                                t(
+                                    "Sending OCR text ${position + 1}/${candidates.size}…",
+                                    "Đang gửi chữ OCR ${position + 1}/${candidates.size}…",
+                                ),
+                                busy = true,
+                            )
+                        }
                         val created = broker.createJob(
                             candidate,
                             settings,
@@ -491,8 +584,17 @@ class MainActivity : ComponentActivity() {
                         webView.evaluateJavascript(ReaderScripts.attachOverlay(candidate.id, regions.toString()), null)
                         progress.progress = (((position + 1).toDouble() / candidates.size) * 100).toInt()
                         statusText(
-                            if (receipt.regions.isEmpty()) "Ảnh ${position + 1}: không phát hiện chữ cần dịch."
-                            else "Đã dịch ${position + 1}/${candidates.size} · ${routeLabel(settings.route)}",
+                            if (receipt.regions.isEmpty()) {
+                                t(
+                                    "Image ${position + 1}: no translatable text found.",
+                                    "Ảnh ${position + 1}: không phát hiện chữ cần dịch.",
+                                )
+                            } else {
+                                t(
+                                    "Translated ${position + 1}/${candidates.size} · ${routeLabel(settings.route)}",
+                                    "Đã dịch ${position + 1}/${candidates.size} · ${routeLabel(settings.route)}",
+                                )
+                            },
                         )
                     }
                     if (stopAfterCurrent.get()) break
@@ -500,8 +602,17 @@ class MainActivity : ComponentActivity() {
                 mainHandler.post {
                     val stopped = stopAfterCurrent.get() && activeQueueDone < activeQueueTotal
                     statusText(
-                        if (stopped) "Đã dừng · $activeQueueDone/$activeQueueTotal ảnh hoàn tất."
-                        else "Đã hoàn tất $activeQueueDone/$activeQueueTotal ảnh.",
+                        if (stopped) {
+                            t(
+                                "Stopped · $activeQueueDone/$activeQueueTotal images completed.",
+                                "Đã dừng · $activeQueueDone/$activeQueueTotal ảnh hoàn tất.",
+                            )
+                        } else {
+                            t(
+                                "Completed $activeQueueDone/$activeQueueTotal images.",
+                                "Đã hoàn tất $activeQueueDone/$activeQueueTotal ảnh.",
+                            )
+                        },
                     )
                     maybeAskResearchConsent()
                 }
@@ -509,8 +620,9 @@ class MainActivity : ComponentActivity() {
                 val currentJob = activeJobId
                 if (currentJob != null) broker.cancel(settings, currentJob)
                 mainHandler.post {
-                    statusText("Chưa dịch được: ${error.message ?: "lỗi không xác định"}")
-                    Toast.makeText(this, error.message, Toast.LENGTH_LONG).show()
+                    val message = userFacingError(error)
+                    statusText(t("Translation failed: $message", "Chưa dịch được: $message"))
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                 }
             } finally {
                 activeJobId = null
@@ -529,16 +641,20 @@ class MainActivity : ComponentActivity() {
             deviceTranslator.translate(
                 regions,
                 settings.targetLanguage,
-                onStatus = { message -> statusText(message, busy = true) },
+                onStatus = { message -> statusText(localizeDeviceStatus(message), busy = true) },
             ) {
                 result = it
                 lock.countDown()
             }
         }
         if (!lock.await(120, java.util.concurrent.TimeUnit.SECONDS)) {
-            throw IllegalStateException("Dịch trên thiết bị quá thời gian.")
+            throw IllegalStateException(
+                t("On-device translation timed out.", "Dịch trên thiết bị quá thời gian."),
+            )
         }
-        return result?.getOrThrow() ?: throw IllegalStateException("Không có kết quả dịch trên thiết bị.")
+        return result?.getOrThrow() ?: throw IllegalStateException(
+            t("No on-device translation result was returned.", "Không có kết quả dịch trên thiết bị."),
+        )
     }
 
     private fun discover(completion: (List<ComicCandidate>) -> Unit) {
@@ -575,10 +691,20 @@ class MainActivity : ComponentActivity() {
         val saved = store.history().firstOrNull { it.url == url } ?: return
         resumeOfferedFor = url
         AlertDialog.Builder(this)
-            .setTitle("Tiếp tục ${saved.title.ifBlank { "chapter này" }}?")
-            .setMessage("Bạn đã đọc đến ảnh ${saved.ordinal + 1}.")
-            .setNegativeButton("Từ đầu", null)
-            .setPositiveButton("Tiếp tục") { _, _ ->
+            .setTitle(
+                t(
+                    "Continue ${saved.title.ifBlank { "this chapter" }}?",
+                    "Tiếp tục ${saved.title.ifBlank { "chapter này" }}?",
+                ),
+            )
+            .setMessage(
+                t(
+                    "You stopped at image ${saved.ordinal + 1}.",
+                    "Bạn đã đọc đến ảnh ${saved.ordinal + 1}.",
+                ),
+            )
+            .setNegativeButton(t("Start over", "Từ đầu"), null)
+            .setPositiveButton(t("Continue", "Tiếp tục")) { _, _ ->
                 webView.evaluateJavascript(
                     ReaderScripts.resume(
                         saved.candidateId,
@@ -595,16 +721,25 @@ class MainActivity : ComponentActivity() {
     private fun maybeAskResearchConsent() {
         if (settings.privateSession || settings.researchConsent != null) return
         AlertDialog.Builder(this)
-            .setTitle("Dùng tên nhân vật quen thuộc hơn?")
-            .setMessage(
-                "Comic Sub có thể tra tên truyện và ngôn ngữ bạn chọn từ nguồn đã kiểm duyệt.\n\n" +
-                    "Không gửi ảnh trang, nội dung OCR, URL chapter hay lịch sử đọc.",
+            .setTitle(
+                t(
+                    "Use familiar character names?",
+                    "Dùng tên nhân vật quen thuộc hơn?",
+                ),
             )
-            .setNegativeButton("Chỉ dùng trên máy") { _, _ ->
+            .setMessage(
+                t(
+                    "Manga Sub can research the series name and your selected language using vetted sources.\n\n" +
+                        "Page images, OCR content, chapter URLs, and reading history are never sent for research.",
+                    "Manga Sub có thể tra tên truyện và ngôn ngữ bạn chọn từ nguồn đã kiểm duyệt.\n\n" +
+                        "Không gửi ảnh trang, nội dung OCR, URL chapter hay lịch sử đọc.",
+                ),
+            )
+            .setNegativeButton(t("On device only", "Chỉ dùng trên máy")) { _, _ ->
                 settings = settings.copy(researchConsent = false)
                 store.save(settings)
             }
-            .setPositiveButton("Dùng nguồn tra cứu") { _, _ ->
+            .setPositiveButton(t("Use research sources", "Dùng nguồn tra cứu")) { _, _ ->
                 settings = settings.copy(researchConsent = true)
                 store.save(settings)
             }
@@ -635,20 +770,78 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun showUiLanguageMenu(anchor: View) {
+        PopupMenu(this, anchor).apply {
+            menu.add(0, UI_LANGUAGE_ENGLISH, 0, "English")
+            menu.add(0, UI_LANGUAGE_VIETNAMESE, 1, "Tiếng Việt")
+            setOnMenuItemClickListener { item ->
+                val nextLanguage = when (item.itemId) {
+                    UI_LANGUAGE_VIETNAMESE -> "vi"
+                    else -> "en"
+                }
+                if (settings.uiLanguage != nextLanguage) {
+                    settings = settings.copy(uiLanguage = nextLanguage)
+                    store.save(settings)
+                    refreshInterfaceLanguage()
+                }
+                true
+            }
+            show()
+        }
+    }
+
+    private fun refreshInterfaceLanguage() {
+        backButton.contentDescription = t("Go back", "Quay lại")
+        forwardButton.contentDescription = t("Go forward", "Đi tới")
+        reloadButton.contentDescription = t("Reload", "Tải lại")
+        menuButton.contentDescription = t("Open menu", "Mở menu")
+        address.hint = t("Paste a chapter URL", "Dán link chapter")
+        languageButton.contentDescription =
+            t("Choose translation language", "Chọn ngôn ngữ dịch")
+        translateButton.text = t("✦  Translate", "✦  Dịch")
+        translateButton.contentDescription = t("Translate comic images", "Dịch ảnh truyện")
+
+        if (
+            webView.url?.contains("home.comicsub.invalid") == true ||
+            address.text.toString().contains("home.comicsub.invalid")
+        ) {
+            showHome()
+        } else {
+            statusText(
+                t(
+                    "English interface · ${routeLabel(settings.route)}",
+                    "Giao diện tiếng Việt · ${routeLabel(settings.route)}",
+                ),
+            )
+        }
+    }
+
     private fun showMainMenu(anchor: View) {
         PopupMenu(this, anchor).apply {
-            menu.add("Lịch sử đọc")
-            menu.add("Cài đặt tuyến dịch")
-            menu.add(if (settings.privateSession) "Tắt phiên riêng tư" else "Bật phiên riêng tư")
-            menu.add("Chi tiết job gần nhất")
-            menu.add("Xóa lớp dịch")
+            menu.add(0, MENU_HISTORY, 0, t("Reading history", "Lịch sử đọc"))
+            menu.add(0, MENU_SETTINGS, 1, t("Translation settings", "Cài đặt dịch"))
+            menu.add(0, MENU_UI_LANGUAGE, 2, t("App language", "Ngôn ngữ ứng dụng"))
+            menu.add(
+                0,
+                MENU_PRIVATE,
+                3,
+                if (settings.privateSession) {
+                    t("Turn off private session", "Tắt phiên riêng tư")
+                } else {
+                    t("Turn on private session", "Bật phiên riêng tư")
+                },
+            )
+            menu.add(0, MENU_RECEIPT, 4, t("Latest job details", "Chi tiết job gần nhất"))
+            menu.add(0, MENU_CLEAR_OVERLAYS, 5, t("Clear translations", "Xóa lớp dịch"))
             setOnMenuItemClickListener { item ->
-                when {
-                    item.title == "Lịch sử đọc" -> showHistory()
-                    item.title == "Cài đặt tuyến dịch" -> showSettings()
-                    item.title.toString().contains("phiên riêng tư") -> togglePrivate()
-                    item.title == "Chi tiết job gần nhất" -> showReceipt()
-                    item.title == "Xóa lớp dịch" -> webView.evaluateJavascript(ReaderScripts.clearOverlays, null)
+                when (item.itemId) {
+                    MENU_HISTORY -> showHistory()
+                    MENU_SETTINGS -> showSettings()
+                    MENU_UI_LANGUAGE -> showUiLanguageMenu(anchor)
+                    MENU_PRIVATE -> togglePrivate()
+                    MENU_RECEIPT -> showReceipt()
+                    MENU_CLEAR_OVERLAYS ->
+                        webView.evaluateJavascript(ReaderScripts.clearOverlays, null)
                 }
                 true
             }
@@ -661,30 +854,38 @@ class MainActivity : ComponentActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(22), dp(8), dp(22), 0)
         }
-        val endpoint = field("Server endpoint", settings.endpoint)
-        val token = field("Auth token", settings.authKey, password = true)
-        val model = field("Model", settings.model)
+        val endpoint = field(t("Server endpoint", "Địa chỉ server"), settings.endpoint)
+        val token = field(t("Auth token", "Token xác thực"), settings.authKey, password = true)
+        val model = field(t("Model", "Model"), settings.model)
         val route = Spinner(this)
-        val routeLabels = listOf("Hỏi mỗi lần", "Trên thiết bị", "Server riêng", "Managed Cloud")
+        val routeLabels = listOf(
+            t("Ask every time", "Hỏi mỗi lần"),
+            t("On this device", "Trên thiết bị"),
+            t("Private server", "Server riêng"),
+            "Manga Sub Cloud",
+        )
         route.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, routeLabels)
         route.setSelection(listOf("ask", "device", "paired", "managed").indexOf(settings.route).coerceAtLeast(0))
-        layout.addView(label("Nơi xử lý"))
+        layout.addView(label(t("Processing route", "Nơi xử lý")))
         layout.addView(route)
         layout.addView(endpoint)
         layout.addView(token)
         layout.addView(model)
         AlertDialog.Builder(this)
-            .setTitle("Tuyến dịch")
+            .setTitle(t("Translation settings", "Cài đặt dịch"))
             .setView(layout)
-            .setNegativeButton("Hủy", null)
-            .setPositiveButton("Lưu", null)
+            .setNegativeButton(t("Cancel", "Hủy"), null)
+            .setPositiveButton(t("Save", "Lưu"), null)
             .create()
             .also { dialog ->
                 dialog.setOnShowListener {
                     dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                         val nextEndpoint = endpoint.text.toString().trimEnd('/')
                         if (!ReaderPolicy.validEndpoint(nextEndpoint)) {
-                            endpoint.error = "Dùng HTTPS hoặc server local/private HTTP."
+                            endpoint.error = t(
+                                "Use HTTPS, or HTTP for a local/private server.",
+                                "Dùng HTTPS hoặc HTTP cho server local/private.",
+                            )
                             return@setOnClickListener
                         }
                         settings = settings.copy(
@@ -705,38 +906,58 @@ class MainActivity : ComponentActivity() {
     private fun showHistory() {
         val history = store.history()
         if (history.isEmpty()) {
-            AlertDialog.Builder(this).setTitle("Lịch sử đọc")
-                .setMessage("Chưa có chapter nào được lưu.")
-                .setPositiveButton("Đóng", null).show()
+            AlertDialog.Builder(this).setTitle(t("Reading history", "Lịch sử đọc"))
+                .setMessage(t("No chapters have been saved yet.", "Chưa có chapter nào được lưu."))
+                .setPositiveButton(t("Close", "Đóng"), null).show()
             return
         }
         val labels = history.map {
-            "${it.title.ifBlank { Uri.parse(it.url).host ?: it.url }}\nẢnh ${it.ordinal + 1}"
+            t(
+                "${it.title.ifBlank { Uri.parse(it.url).host ?: it.url }}\nImage ${it.ordinal + 1}",
+                "${it.title.ifBlank { Uri.parse(it.url).host ?: it.url }}\nẢnh ${it.ordinal + 1}",
+            )
         }.toTypedArray()
         AlertDialog.Builder(this)
-            .setTitle("Tiếp tục đọc")
+            .setTitle(t("Continue reading", "Tiếp tục đọc"))
             .setItems(labels) { _, index -> openUrl(history[index].url) }
-            .setNegativeButton("Đóng", null)
-            .setNeutralButton("Xóa lịch sử") { _, _ -> store.clearHistory() }
+            .setNegativeButton(t("Close", "Đóng"), null)
+            .setNeutralButton(t("Clear history", "Xóa lịch sử")) { _, _ -> store.clearHistory() }
             .show()
     }
 
     private fun showReceipt() {
         val receipt = lastReceipt
         if (receipt == null) {
-            Toast.makeText(this, "Chưa có job nào trong phiên này.", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                this,
+                t("No jobs in this session yet.", "Chưa có job nào trong phiên này."),
+                Toast.LENGTH_SHORT,
+            ).show()
             return
         }
+        val locus = when (receipt.locus) {
+            "managed" -> "Manga Sub Cloud"
+            "paired" -> t("Private server", "Server riêng")
+            "device" -> t("On this device", "Trên thiết bị")
+            else -> receipt.locus
+        }
         AlertDialog.Builder(this)
-            .setTitle("Chi tiết ảnh gần nhất")
+            .setTitle(t("Latest image details", "Chi tiết ảnh gần nhất"))
             .setMessage(
-                "Xử lý tại: ${receipt.locus}\n" +
-                    "Translation: ${receipt.resolvedModel.ifBlank { "Apple/ML Kit device engine" }}\n" +
-                    "Requested / resolved: ${if (receipt.requestedModel == receipt.resolvedModel) "matched" else "device route"}\n" +
-                    "Diagnostic ID: ${ReaderPolicy.safeDiagnosticId(receipt.diagnosticId)}\n" +
-                    "Vùng dịch: ${receipt.regions.size}",
+                t(
+                    "Processed by: $locus\n" +
+                        "Translation: ${receipt.resolvedModel.ifBlank { "ML Kit on-device engine" }}\n" +
+                        "Requested / resolved: ${if (receipt.requestedModel == receipt.resolvedModel) "matched" else "device route"}\n" +
+                        "Diagnostic ID: ${ReaderPolicy.safeDiagnosticId(receipt.diagnosticId)}\n" +
+                        "Translated regions: ${receipt.regions.size}",
+                    "Xử lý tại: $locus\n" +
+                        "Translation: ${receipt.resolvedModel.ifBlank { "ML Kit trên thiết bị" }}\n" +
+                        "Yêu cầu / thực tế: ${if (receipt.requestedModel == receipt.resolvedModel) "khớp" else "tuyến thiết bị"}\n" +
+                        "Diagnostic ID: ${ReaderPolicy.safeDiagnosticId(receipt.diagnosticId)}\n" +
+                        "Vùng dịch: ${receipt.regions.size}",
+                ),
             )
-            .setPositiveButton("Đóng", null)
+            .setPositiveButton(t("Close", "Đóng"), null)
             .show()
     }
 
@@ -748,9 +969,14 @@ class MainActivity : ComponentActivity() {
             webView.clearHistory()
             webView.clearCache(true)
             WebView(this).clearFormData()
-            statusText("Phiên riêng tư · Comic Sub không cố ý lưu dữ liệu đọc.")
+            statusText(
+                t(
+                    "Private session · Manga Sub does not intentionally store reading data.",
+                    "Phiên riêng tư · Manga Sub không cố ý lưu dữ liệu đọc.",
+                ),
+            )
         } else {
-            statusText("Đã tắt phiên riêng tư.")
+            statusText(t("Private session turned off.", "Đã tắt phiên riêng tư."))
         }
         webView.settings.domStorageEnabled = !settings.privateSession
         webView.settings.databaseEnabled = !settings.privateSession
@@ -830,11 +1056,54 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun routeLabel(route: String): String = when (route) {
-        "device" -> "OCR + dịch trên thiết bị"
-        "paired" -> "Server riêng · OCR local"
-        "managed" -> "Manga Sub Cloud · OCR local"
-        else -> "Hỏi trước khi gửi"
+        "device" -> t("On-device OCR + translation", "OCR + dịch trên thiết bị")
+        "paired" -> t("Private server · local OCR", "Server riêng · OCR local")
+        "managed" -> t("Manga Sub Cloud · local OCR", "Manga Sub Cloud · OCR local")
+        else -> t("Ask before sending", "Hỏi trước khi gửi")
     }
+
+    private fun localizeDeviceStatus(message: String): String {
+        if (settings.uiLanguage == "vi") return message
+        return when {
+            message.startsWith("Đang chuẩn bị gói ngôn ngữ") ->
+                "Preparing the on-device language pack…"
+            message.startsWith("Đang dịch ") -> {
+                val count = Regex("\\d+").find(message)?.value ?: ""
+                "Translating $count text regions in parallel on this device…"
+            }
+            else -> message
+        }
+    }
+
+    private fun userFacingError(error: Throwable): String {
+        val raw = error.message.orEmpty().trim()
+        if (raw.isBlank()) return t("Unknown error", "Lỗi không xác định")
+        if (settings.uiLanguage == "vi") return raw
+        return when {
+            raw.contains("Ngôn ngữ này chưa được ML Kit hỗ trợ") ->
+                "This language is not supported by ML Kit."
+            raw.contains("Không giải mã được ảnh") ->
+                "The image could not be decoded for on-device OCR."
+            raw.contains("Định dạng ảnh") ->
+                "This image format is not supported."
+            raw.contains("OCR trên thiết bị quá thời gian") ->
+                "On-device OCR timed out."
+            raw.contains("OCR trên thiết bị không trả kết quả") ->
+                "On-device OCR returned no result."
+            raw.contains("Không tải được ảnh") ->
+                raw.replace("Không tải được ảnh", "Could not download the image")
+            raw.contains("Ảnh vượt giới hạn") ->
+                "The image exceeds the 32 MB limit."
+            raw.contains("Endpoint không hợp lệ") ->
+                "The server endpoint is invalid."
+            raw.contains("Job dịch quá thời gian") ->
+                "Cloud translation timed out."
+            else -> raw
+        }
+    }
+
+    private fun t(english: String, vietnamese: String): String =
+        if (::settings.isInitialized && settings.uiLanguage == "vi") vietnamese else english
 
     private fun decodeJavaScriptString(raw: String): String =
         runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull() ?: raw
@@ -860,5 +1129,20 @@ class MainActivity : ComponentActivity() {
         deviceOcr.close()
         worker.shutdownNow()
         super.onDestroy()
+    }
+
+    private companion object {
+        const val MENU_TRANSLATE_CURRENT = 100
+        const val MENU_TRANSLATE_ALL = 101
+        const val MENU_TOGGLE_ORIGINALS = 102
+        const val MENU_STOP_AFTER_CURRENT = 103
+        const val MENU_HISTORY = 200
+        const val MENU_SETTINGS = 201
+        const val MENU_UI_LANGUAGE = 202
+        const val MENU_PRIVATE = 203
+        const val MENU_RECEIPT = 204
+        const val MENU_CLEAR_OVERLAYS = 205
+        const val UI_LANGUAGE_ENGLISH = 300
+        const val UI_LANGUAGE_VIETNAMESE = 301
     }
 }

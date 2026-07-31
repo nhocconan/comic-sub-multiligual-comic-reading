@@ -1,4 +1,4 @@
-/* Comic Sub MV3 service worker.
+/* Manga Sub MV3 service worker.
  *
  * Security boundary: a page can only fetch an exact URL after the extension
  * popup activated that tab, the content script registered that candidate, and
@@ -83,7 +83,7 @@ function asPublicError(error) {
   }
   return {
     code: 'UNEXPECTED_ERROR',
-    message: 'Comic Sub gặp lỗi không mong đợi.',
+    message: 'Manga Sub gặp lỗi không mong đợi.',
     state: 'error',
     retryable: true,
   }
@@ -94,7 +94,7 @@ function normalizePageKey(value) {
   assert(
     url.protocol === 'http:' || url.protocol === 'https:',
     'UNSUPPORTED_PAGE',
-    'Comic Sub chỉ hoạt động trên trang HTTP(S).',
+    'Manga Sub chỉ hoạt động trên trang HTTP(S).',
   )
   url.hash = ''
   return url.href
@@ -135,17 +135,17 @@ function normalizeApiBase(value = DEFAULT_API_BASE) {
   try {
     url = new URL(value || DEFAULT_API_BASE)
   } catch {
-    throw new BongBongError('INVALID_API_BASE', 'Địa chỉ Koharu không hợp lệ.', 'incompatible')
+    throw new BongBongError('INVALID_API_BASE', 'Địa chỉ máy chủ dịch không hợp lệ.', 'incompatible')
   }
   const loopback = isLoopbackHostname(url.hostname)
   assert(
     (loopback && (url.protocol === 'http:' || url.protocol === 'https:')) ||
       (!loopback && url.protocol === 'https:'),
     'INVALID_API_BASE',
-    'Local dùng HTTP(S); Koharu remote bắt buộc HTTPS.',
+    'Máy cục bộ dùng HTTP(S); máy chủ từ xa bắt buộc HTTPS.',
     'incompatible',
   )
-  assert(!url.username && !url.password && !url.search && !url.hash, 'INVALID_API_BASE', 'Địa chỉ Koharu không hợp lệ.', 'incompatible')
+  assert(!url.username && !url.password && !url.search && !url.hash, 'INVALID_API_BASE', 'Địa chỉ máy chủ dịch không hợp lệ.', 'incompatible')
   return url.href.replace(/\/+$/, '')
 }
 
@@ -154,7 +154,7 @@ function normalizeAuthKey(value) {
   assert(
     key.length <= 4096 && !/[\r\n]/.test(key),
     'INVALID_AUTH_KEY',
-    'Auth key Koharu không hợp lệ.',
+    'Auth key máy chủ dịch không hợp lệ.',
     'incompatible',
   )
   return key
@@ -351,9 +351,9 @@ function boundedText(value) {
 }
 
 function parseSceneRegions(scene, pageId) {
-  assert(scene && typeof scene === 'object' && scene.pages && typeof scene.pages === 'object', 'INVALID_SCENE', 'Koharu trả về scene không hợp lệ.', 'incompatible')
+  assert(scene && typeof scene === 'object' && scene.pages && typeof scene.pages === 'object', 'INVALID_SCENE', 'Máy chủ trả về scene không hợp lệ.', 'incompatible')
   const page = scene.pages[pageId]
-  assert(page && typeof page === 'object', 'PAGE_NOT_IN_SCENE', 'Không tìm thấy trang đã dịch trong scene Koharu.', 'incompatible')
+  assert(page && typeof page === 'object', 'PAGE_NOT_IN_SCENE', 'Không tìm thấy trang đã dịch trong scene máy chủ.', 'incompatible')
   const width = finiteNumber(page.width)
   const height = finiteNumber(page.height)
   assert(
@@ -363,7 +363,7 @@ function parseSceneRegions(scene, pageId) {
       height <= MAX_SOURCE_DIMENSION &&
       width * height <= MAX_SOURCE_PIXELS,
     'INVALID_SCENE_DIMENSIONS',
-    'Kích thước scene Koharu không hợp lệ.',
+    'Kích thước scene máy chủ không hợp lệ.',
     'incompatible',
   )
   const nodes = page.nodes && typeof page.nodes === 'object' ? Object.entries(page.nodes) : []
@@ -371,7 +371,7 @@ function parseSceneRegions(scene, pageId) {
   for (const [nodeKey, node] of nodes) {
     const text = node && node.kind && node.kind.text
     if (!text || typeof text !== 'object') continue
-    assert(regions.length < MAX_REGIONS, 'TOO_MANY_REGIONS', 'Koharu trả về quá nhiều vùng chữ.', 'incompatible')
+    assert(regions.length < MAX_REGIONS, 'TOO_MANY_REGIONS', 'Máy chủ trả về quá nhiều vùng chữ.', 'incompatible')
     const transform = node.transform && typeof node.transform === 'object' ? node.transform : {}
     const rawX = finiteNumber(transform.x)
     const rawY = finiteNumber(transform.y)
@@ -694,7 +694,7 @@ function serializeCandidate(candidate) {
 }
 
 async function activateTab(message, sender) {
-  assert(isExtensionSender(sender), 'ACTIVATION_DENIED', 'Chỉ popup Comic Sub có thể kích hoạt tab.', 'permission_required')
+  assert(isExtensionSender(sender), 'ACTIVATION_DENIED', 'Chỉ popup Manga Sub có thể kích hoạt tab.', 'permission_required')
   assert(Number.isInteger(message.tabId) && message.tabId >= 0, 'INVALID_TAB', 'Tab không hợp lệ.')
   const tab = await chrome.tabs.get(message.tabId)
   assert(tab && tab.active && typeof tab.url === 'string', 'INVALID_TAB', 'Không tìm thấy tab đang hoạt động.')
@@ -884,8 +884,8 @@ async function apiFetch(
       throw new BongBongError(
         response.status === 503 ? 'KOHARU_BOOTING' : 'KOHARU_HTTP_ERROR',
         response.status === 503
-          ? 'Koharu đang khởi động hoặc tải model.'
-          : `Koharu trả về HTTP ${response.status}.`,
+          ? 'Máy chủ dịch đang khởi động hoặc tải model.'
+          : `Máy chủ dịch trả về HTTP ${response.status}.`,
         state,
         true,
         { status: response.status },
@@ -896,9 +896,9 @@ async function apiFetch(
     if (error instanceof BongBongError) throw error
     if (context.signal.aborted) {
       if (signal && signal.aborted) throw new BongBongError('CANCELLED', 'Đã hủy bản dịch.', 'cancelled', true)
-      throw new BongBongError('KOHARU_TIMEOUT', 'Koharu phản hồi quá chậm.', 'companion_error', true)
+      throw new BongBongError('KOHARU_TIMEOUT', 'Máy chủ dịch phản hồi quá chậm.', 'companion_error', true)
     }
-    throw new BongBongError('KOHARU_OFFLINE', 'Không kết nối được Koharu.', 'offline', true)
+    throw new BongBongError('KOHARU_OFFLINE', 'Không kết nối được máy chủ dịch.', 'offline', true)
   } finally {
     context.dispose()
   }
@@ -916,7 +916,7 @@ async function apiJson(
   try {
     return await response.json()
   } catch {
-    throw new BongBongError('INVALID_KOHARU_RESPONSE', 'Koharu trả về JSON không hợp lệ.', 'incompatible')
+    throw new BongBongError('INVALID_KOHARU_RESPONSE', 'Máy chủ dịch trả về JSON không hợp lệ.', 'incompatible')
   }
 }
 
@@ -942,7 +942,7 @@ function verifyRequiredEngines(catalog) {
   assert(
     missing.length === 0,
     'MISSING_KOHARU_ENGINES',
-    `Koharu thiếu engine: ${missing.join(', ')}.`,
+    `Máy chủ dịch thiếu engine: ${missing.join(', ')}.`,
     'incompatible',
   )
 }
@@ -965,14 +965,14 @@ async function healthCheck() {
     assert(
       meta && typeof meta.version === 'string' && typeof meta.mlDevice === 'string',
       'INVALID_KOHARU_RESPONSE',
-      'Koharu meta không tương thích.',
+      'Metadata máy chủ dịch không tương thích.',
       'incompatible',
     )
     const desired = selectedLlmTarget(settings)
     if (!desired && (!llm || llm.status !== 'ready' || !llm.target)) {
       throw new BongBongError(
         'PROVIDER_NOT_CONFIGURED',
-        'Hãy chọn provider/model đã cấu hình trong Koharu.',
+        'Hãy chọn provider/model đã cấu hình trên máy chủ.',
         llm && llm.status === 'loading' ? 'downloading_models' : 'provider_not_configured',
         true,
       )
@@ -980,11 +980,11 @@ async function healthCheck() {
     const providers = catalog && Array.isArray(catalog.providers) ? catalog.providers : []
     if (desired && desired.kind === 'provider') {
       const provider = providers.find((entry) => entry.id === desired.providerId)
-      assert(provider, 'PROVIDER_NOT_CONFIGURED', 'Provider đã chọn không có trong Koharu.', 'provider_not_configured', true)
+      assert(provider, 'PROVIDER_NOT_CONFIGURED', 'Provider đã chọn không có trên máy chủ.', 'provider_not_configured', true)
       assert(
         provider.status === 'ready',
         'PROVIDER_NOT_CONFIGURED',
-        `Provider ${provider.name || provider.id} chưa được cấu hình trong Koharu.`,
+        `Provider ${provider.name || provider.id} chưa được cấu hình trên máy chủ.`,
         'provider_not_configured',
         true,
       )
@@ -1038,7 +1038,7 @@ async function ensureLlm(apiBase, settings, signal) {
     assert(
       state && state.status === 'ready' && state.target,
       'PROVIDER_NOT_CONFIGURED',
-      'Hãy chọn provider/model đã cấu hình trong Koharu.',
+      'Hãy chọn provider/model đã cấu hình trên máy chủ.',
       'provider_not_configured',
       true,
     )
@@ -1069,14 +1069,14 @@ async function ensureLlm(apiBase, settings, signal) {
     if (state.status === 'failed') {
       throw new BongBongError(
         'LLM_LOAD_FAILED',
-        state.error || 'Không tải được model dịch trong Koharu.',
+        state.error || 'Không tải được model dịch trên máy chủ.',
         'provider_not_configured',
         true,
       )
     }
     await delay(POLL_INTERVAL_MS, signal)
   }
-  throw new BongBongError('LLM_LOAD_TIMEOUT', 'Koharu tải model quá thời gian cho phép.', 'downloading_models', true)
+  throw new BongBongError('LLM_LOAD_TIMEOUT', 'Máy chủ tải model quá thời gian cho phép.', 'downloading_models', true)
 }
 
 function delay(milliseconds, signal) {
@@ -1137,7 +1137,7 @@ async function ensureProject(apiBase, tabId, activation, signal, authKey) {
     API_FETCH_TIMEOUT_MS,
     authKey,
   )
-  assert(project && typeof project.id === 'string', 'INVALID_KOHARU_RESPONSE', 'Koharu không trả về project id.', 'incompatible')
+  assert(project && typeof project.id === 'string', 'INVALID_KOHARU_RESPONSE', 'Máy chủ không trả về project id.', 'incompatible')
   activation.projectId = project.id
   activation.pageIds = {}
   await persistProjectState(tabId, activation)
@@ -1165,7 +1165,7 @@ async function ensurePage(apiBase, tabId, activation, candidate, source, signal,
     authKey,
   )
   const pageId = uploaded && Array.isArray(uploaded.pages) ? uploaded.pages[0] : null
-  assert(typeof pageId === 'string', 'INVALID_KOHARU_RESPONSE', 'Koharu không trả về page id.', 'incompatible')
+  assert(typeof pageId === 'string', 'INVALID_KOHARU_RESPONSE', 'Máy chủ không trả về page id.', 'incompatible')
   activation.pageIds = activation.pageIds || {}
   activation.pageIds[candidate.id] = { pageId, sourceHash: source.sourceHash }
   await persistProjectState(tabId, activation)
@@ -1192,11 +1192,11 @@ async function pollOperation(apiBase, operationId, task, signal, authKey) {
     if (operation && TERMINAL_OPERATION_STATES.has(operation.status)) {
       if (operation.status === 'completed') return
       if (operation.status === 'cancelled') {
-        throw new BongBongError('CANCELLED', 'Koharu đã hủy bản dịch.', 'cancelled', true)
+        throw new BongBongError('CANCELLED', 'Máy chủ đã hủy bản dịch.', 'cancelled', true)
       }
       throw new BongBongError(
         'PIPELINE_FAILED',
-        operation.error || `Koharu kết thúc với trạng thái ${operation.status}.`,
+        operation.error || `Máy chủ kết thúc với trạng thái ${operation.status}.`,
         'translation_error',
         true,
       )
@@ -1204,7 +1204,7 @@ async function pollOperation(apiBase, operationId, task, signal, authKey) {
     await delay(POLL_INTERVAL_MS, signal)
   }
   await cancelKoharuOperation(task)
-  throw new BongBongError('PIPELINE_TIMEOUT', 'Pipeline Koharu quá thời gian cho phép.', 'translation_error', true)
+  throw new BongBongError('PIPELINE_TIMEOUT', 'Pipeline máy chủ quá thời gian cho phép.', 'translation_error', true)
 }
 
 async function exportRenderedPage(apiBase, pageId, source, signal, authKey) {
@@ -1220,7 +1220,7 @@ async function exportRenderedPage(apiBase, pageId, source, signal, authKey) {
   assert(
     declaredMime === 'image/png',
     'INVALID_RENDERED_IMAGE',
-    'Koharu không trả về ảnh PNG đã render.',
+    'Máy chủ không trả về ảnh PNG đã render.',
     'incompatible',
   )
   const bytes = await readBoundedBody(response, MAX_RENDERED_BYTES, signal)
@@ -1281,7 +1281,7 @@ async function runKoharuTranslation({
     API_FETCH_TIMEOUT_MS,
     authKey,
   )
-  assert(started && typeof started.operationId === 'string', 'INVALID_KOHARU_RESPONSE', 'Koharu không trả về operation id.', 'incompatible')
+  assert(started && typeof started.operationId === 'string', 'INVALID_KOHARU_RESPONSE', 'Máy chủ không trả về operation id.', 'incompatible')
   task.operationId = started.operationId
   task.apiBase = apiBase
   await pollOperation(apiBase, started.operationId, task, signal, authKey)
@@ -1302,7 +1302,7 @@ async function runKoharuTranslation({
   assert(
     result.page.width === source.width && result.page.height === source.height,
     'SCENE_SOURCE_MISMATCH',
-    'Kích thước scene Koharu không khớp ảnh nguồn.',
+    'Kích thước scene máy chủ không khớp ảnh nguồn.',
     'incompatible',
   )
   // The original image plus bounded translation boxes is the reliable reading
@@ -1326,7 +1326,7 @@ async function resolveLlmTargetForCache(settings, signal) {
   assert(
     current && current.status === 'ready' && current.target,
     'PROVIDER_NOT_CONFIGURED',
-    'Hãy chọn provider/model đã cấu hình trong Koharu.',
+    'Hãy chọn provider/model đã cấu hình trên máy chủ.',
     'provider_not_configured',
     true,
   )
@@ -1618,7 +1618,7 @@ async function handleMessage(message, sender) {
   assert(
     sender && sender.id === chrome.runtime.id,
     'UNTRUSTED_SENDER',
-    'Tin nhắn không đến từ Comic Sub.',
+    'Tin nhắn không đến từ Manga Sub.',
     'permission_required',
   )
   assert(message && typeof message.type === 'string', 'INVALID_MESSAGE', 'Tin nhắn không hợp lệ.')

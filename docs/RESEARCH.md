@@ -47,7 +47,7 @@ needs.
 
 Best foundation found for a local companion: native Apple acceleration,
 comic-specific detection, PaddleOCR-VL, provider management, and a structured
-scene graph exposed over HTTP. Crucially, Comic Sub can stop after detection,
+scene graph exposed over HTTP. Crucially, Manga Sub can stop after detection,
 OCR, and translation and render its own reversible text regions.
 
 ### Direct multimodal provider

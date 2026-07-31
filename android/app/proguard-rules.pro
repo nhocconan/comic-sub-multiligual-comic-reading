@@ -1,1 +1,1 @@
-# Comic Sub intentionally keeps its protocol DTOs inspectable for diagnostics.
+# Manga Sub intentionally keeps its protocol DTOs inspectable for diagnostics.

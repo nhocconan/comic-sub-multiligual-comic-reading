@@ -1,6 +1,6 @@
 # Remote Koharu
 
-Use this when Comic Sub should share one Koharu instance across machines.
+Use this when Manga Sub should share one Koharu instance across machines.
 
 ## Security model
 
@@ -84,7 +84,7 @@ chmod 600 private/auth-keys.env
 docker compose -f docker-compose.prod.yml up -d
 ```
 
-This now builds and starts both Koharu and Comic Sub Broker. The production
+This now builds and starts both Koharu and Manga Sub Broker. The production
 gateway joins the external `traefik-network`; neither service publishes a host
 port. Traefik terminates TLS, and the internal Caddy gateway accepts any of the
 five independent Bearer keys. `/v1/*` and `/health` go to Broker; existing
@@ -102,7 +102,7 @@ curl -fsS -H "Authorization: Bearer ${BONG_BONG_AUTH_KEY}" \
   https://comic-be.dep.app/api/v1/meta
 ```
 
-## 4. Configure Comic Sub
+## 4. Configure Manga Sub
 
 In extension settings:
 

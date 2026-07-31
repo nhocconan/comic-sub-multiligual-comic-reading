@@ -1,6 +1,6 @@
 <!-- /autoplan restore point: /Users/tienle/.gstack/projects/nhocconan-comic-sub-multiligual-comic-reading/autoplan-restores/main-20260730-085144.md -->
 
-# Comic Sub Reader — Product and Architecture Plan
+# Manga Sub Reader — Product and Architecture Plan
 
 Status: final decision artifact and Phase 0 execution contract
 Date: 2026-07-30
@@ -9,7 +9,7 @@ Review mode: auto-decide, as explicitly requested
 
 ## Executive decision
 
-Build Comic Sub as a translation-native reader with an embedded browser, not as
+Build Manga Sub as a translation-native reader with an embedded browser, not as
 a generic browser with a translation button.
 
 - Desktop: Electron with an isolated Chromium reader and a managed local Koharu
@@ -43,7 +43,7 @@ a generic browser with a translation button.
 
 ## Product promise
 
-Paste a comic URL, read normally, and tap Translate. Comic Sub remembers the
+Paste a comic URL, read normally, and tap Translate. Manga Sub remembers the
 series, the exact place, the chosen language, the privacy path, and the names
 used in previous chapters.
 
@@ -74,7 +74,7 @@ building two readers at once.
 
 ## Market benchmark and unmet pain
 
-| Product | Current benchmark | Gap Comic Sub should beat |
+| Product | Current benchmark | Gap Manga Sub should beat |
 |---|---|---|
 | Mangra | Built-in browser, scroll/whole-chapter translation, background resume/retry, edit bubbles, history/bookmarks/tabs, offline/import/Komga | Exact cross-device resume, clearer cost/data-path receipt, private paired compute, no reader ads |
 | Madomi | Browser/mobile reader plus archive/Komga support | Focused comic reading instead of unrelated browser AI feature sprawl |
@@ -174,7 +174,7 @@ reading section.
 
 - Target language per device
 - Source language: auto-detect with manual override
-- Translation location: Ask Each Time, On This Device, My Computer, Comic Sub
+- Translation location: Ask Each Time, On This Device, My Computer, Manga Sub
   Cloud
 - Translation profile: Fast, Balanced, Quality
 - Named paired-computer health and revocation
@@ -195,9 +195,9 @@ On this computer
 Private. Download size, free-space need, expected time, and quality are shown.
 
 My computer
-Scan a QR code from a ready Comic Sub desktop on the same Wi-Fi.
+Scan a QR code from a ready Manga Sub desktop on the same Wi-Fi.
 
-Comic Sub cloud
+Manga Sub cloud
 Fastest trial. Exact image/OCR destinations are shown. Ten successful images
 free, no account or API key required.
 
@@ -275,7 +275,7 @@ Consent copy:
 
 ```text
 Use familiar character names?
-Comic Sub can look up this series title and your chosen language in reviewed
+Manga Sub can look up this series title and your chosen language in reviewed
 sources. It does not send page images, OCR text, chapter URL, or reading history.
 
 [ Use lookup sources ] [ Keep everything on this device ]
@@ -318,7 +318,7 @@ User-facing route labels must be literal:
 - `My computer + external AI`: image/OCR stages use the named node, while
   translated text goes to the explicitly named external provider using the
   user’s key.
-- `Managed cloud`: Comic Sub’s service handles declared stages.
+- `Managed cloud`: Manga Sub’s service handles declared stages.
 
 `Auto` means fully local when eligible, then paired private server when healthy,
 then ask before managed cloud. It never silently escalates from local/private to
@@ -366,9 +366,9 @@ overwrite them.
 - Legacy migration only changes `gemini-3.1-flash-lite` to 3.6. A persisted
   `gemini-3.5-flash` selection remains unchanged.
 - Desktop defaults to local Koharu. Both local and remote can use the same Google
-  API key, so the Google dashboard cannot identify which Comic Sub client or
+  API key, so the Google dashboard cannot identify which Manga Sub client or
   Koharu instance issued a request.
-- Comic Sub sends the selected target to global `PUT /llm/current`, then starts a
+- Manga Sub sends the selected target to global `PUT /llm/current`, then starts a
   pipeline whose payload contains no immutable model field.
 - Koharu 0.61.2 passes the target model string directly to Gemini, so it does not
   internally remap 3.6 to 3.5. Its static catalog is stale and omits 3.6, but its
@@ -397,7 +397,7 @@ not immutably bound to the job.
   is 3.6. An ambiguous persisted 3.5 selection gets one explicit choice instead
   of silently overwriting possible user intent. A later manual choice remains
   pinned.
-- Add a Comic Sub job broker. Every job includes immutable requested and resolved
+- Add a Manga Sub job broker. Every job includes immutable requested and resolved
   execution fingerprints:
   - tenant/device/project and idempotency key;
   - provider, exact model, credential reference, and allowed fallback policy;
@@ -613,7 +613,7 @@ sync is opt-in and end-to-end encrypted. Never sync cookies, passwords, provider
 keys, or backend tokens.
 
 Because an OS may swap memory or produce a platform crash log, user copy is:
-`Comic Sub does not intentionally keep reading data after this private session`,
+`Manga Sub does not intentionally keep reading data after this private session`,
 not an unverifiable absolute “zero-write” claim.
 
 Sync envelopes contain record type, schema/key versions, device ID, hybrid
@@ -721,14 +721,14 @@ binary transfer is mandatory; JSON/base64 is not the general asset transport.
 
 ## Activation and distribution
 
-- Mobile Share Sheet: `Open in Comic Sub`.
+- Mobile Share Sheet: `Open in Manga Sub`.
 - Desktop share target/custom URL handoff for a user-selected chapter URL.
 - One-tap owned/licensed sample chapter for clean-install and store review.
 - No account, API key, or extension required for the first local/demo success.
 - Normal site login and passkeys run inside the embedded reader WebView so its
   isolated cookie store can continue the session.
 - If the site login/reader is incompatible, offer
-  `Open in Safari/Chrome + Comic Sub Extension`. Explain that the system browser
+  `Open in Safari/Chrome + Manga Sub Extension`. Explain that the system browser
   has a separate session and progress in the app stops at the handoff. Never
   imply that logging in externally signs in the app, and never import cookies.
 - Measure install → share/paste → candidate discovery → first rendered viewport.
@@ -737,7 +737,7 @@ First-run flow:
 
 ```text
 Home
-→ Paste copied chapter URL / Share into Comic Sub / Open owned sample
+→ Paste copied chapter URL / Share into Manga Sub / Open owned sample
 → Opening
 → Candidate discovery
 → Reader with original artwork immediately visible

@@ -12,6 +12,9 @@ class ReaderStore(context: Context) {
             ?.takeUnless { it == ReaderPolicy.LEGACY_EMULATOR_ENDPOINT }
             ?: ReaderPolicy.DEFAULT_ENDPOINT,
         authKey = preferences.getString("authKey", "") ?: "",
+        uiLanguage = preferences.getString("uiLanguage", "en")
+            ?.takeIf { it in setOf("en", "vi") }
+            ?: "en",
         targetLanguage = preferences.getString("targetLanguage", "vi") ?: "vi",
         route = preferences.getString("route", "ask") ?: "ask",
         model = migrateModel(preferences.getString("model", ReaderPolicy.DEFAULT_MODEL)),
@@ -27,6 +30,7 @@ class ReaderStore(context: Context) {
         preferences.edit()
             .putString("endpoint", settings.endpoint.trimEnd('/'))
             .putString("authKey", settings.authKey)
+            .putString("uiLanguage", settings.uiLanguage)
             .putString("targetLanguage", settings.targetLanguage)
             .putString("route", settings.route)
             .putString("model", settings.model)

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="vi">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -11,117 +11,118 @@
     <main class="shell">
       <header class="topbar">
         <div class="brand-area">
-          <button class="chrome-toggle" id="toggle-sidebar" type="button" aria-label="Ẩn thanh công cụ" aria-pressed="false" title="Ẩn/hiện thanh công cụ">☰</button>
+          <button class="chrome-toggle" id="toggle-sidebar" type="button" aria-label="Hide controls" aria-pressed="false" title="Show or hide controls">☰</button>
           <div class="brand"><span class="brand-mark">M</span><span>Manga Sub</span><em>DESKTOP</em></div>
         </div>
-        <form id="address-form" class="address" aria-label="Mở chương truyện">
-          <button type="button" id="back-button" title="Quay lại">←</button>
-          <input id="address-input" autocomplete="off" spellcheck="false" placeholder="Dán link chương truyện…" />
-          <button class="open-button" type="submit">Open</button>
+        <form id="address-form" class="address" aria-label="Open a comic chapter" data-i18n-aria-label="addressFormAria">
+          <button type="button" id="back-button" title="Back" data-i18n-title="back">←</button>
+          <input id="address-input" autocomplete="off" spellcheck="false" placeholder="Paste a chapter URL…" data-i18n-placeholder="addressPlaceholder" />
+          <button class="open-button" type="submit" data-i18n="open">Open</button>
         </form>
         <div class="topbar-actions">
-          <button class="chrome-toggle" id="toggle-inspector" type="button" aria-label="Hiện thông tin phiên" aria-pressed="false" title="Ẩn/hiện thông tin phiên">◧</button>
-          <button class="private-toggle" id="private-toggle" type="button"><span class="private-dot"></span>Private session</button>
+          <button class="chrome-toggle" id="toggle-inspector" type="button" aria-label="Show session details" aria-pressed="false" title="Show or hide session details">◧</button>
+          <button class="private-toggle" id="private-toggle" type="button"><span class="private-dot"></span><span data-i18n="privateSession">Private session</span></button>
         </div>
       </header>
 
       <aside class="sidebar">
-        <nav class="nav" aria-label="Điều hướng">
-          <button class="nav-item active" data-tab="reader"><span>◉</span>Read</button>
-          <button class="nav-item" data-tab="library"><span>▤</span>Library</button>
-          <button class="nav-item" data-tab="settings"><span>◌</span>Settings</button>
+        <nav class="nav" aria-label="Navigation" data-i18n-aria-label="navigation">
+          <button class="nav-item active" data-tab="reader"><span>◉</span><span data-i18n="read">Read</span></button>
+          <button class="nav-item" data-tab="library"><span>▤</span><span data-i18n="library">Library</span></button>
+          <button class="nav-item" data-tab="settings"><span>◌</span><span data-i18n="settings">Settings</span></button>
         </nav>
         <section id="reader-controls" class="reader-controls">
-          <p class="eyebrow">TRANSLATION</p>
-          <div class="language-line"><span id="language-label">Chinese → Vietnamese</span><button id="change-route">Change</button></div>
-          <button id="translate-current" class="primary-action">Dịch phần đang đọc <span>⌁</span></button>
-          <button id="translate-all" class="secondary-action">Dịch tất cả ảnh đã tải <span id="candidate-count">—</span></button>
-          <button id="cancel-translation" class="text-action cancel-action">Dừng queue hiện tại</button>
-          <div class="queue-status" id="queue-status"><span class="pulse"></span><span>Đang chờ trang truyện…</span></div>
+          <p class="eyebrow" data-i18n="translation">TRANSLATION</p>
+          <div class="language-line"><span id="language-label">Chinese → Vietnamese</span><button id="change-route" data-i18n="change">Change</button></div>
+          <button id="translate-current" class="primary-action"><span data-i18n="translateCurrent">Translate current view</span> <span>⌁</span></button>
+          <button id="translate-all" class="secondary-action"><span data-i18n="translateAllLoaded">Translate all loaded images</span> <span id="candidate-count">—</span></button>
+          <button id="cancel-translation" class="text-action cancel-action" data-i18n="stopQueue">Stop current queue</button>
+          <div class="queue-status" id="queue-status"><span class="pulse"></span><span data-i18n="waitingForPage">Waiting for a comic page…</span></div>
 
           <div id="route-chooser" class="route-chooser" hidden>
-            <p class="eyebrow">WHERE IT RUNS</p>
-            <h2>Dịch chương này ở đâu?</h2>
-            <button data-route="local"><b>On this Mac</b><small>Private · Apple Vision + Translation</small></button>
-            <button data-route="managed" class="route-cloud"><b>Manga Sub Cloud</b><small>Nhanh nhất · dùng thử không cần tài khoản</small></button>
-            <button data-route="byo"><b>Your API key</b><small>Local OCR · only recognized text leaves this Mac</small></button>
-            <p class="route-note">Luôn xem được chính xác dữ liệu đi đâu trước khi chạy.</p>
+            <p class="eyebrow" data-i18n="whereItRuns">WHERE IT RUNS</p>
+            <h2 data-i18n="whereTranslate">Where should this chapter be translated?</h2>
+            <button data-route="local"><b data-i18n="onThisMac">On this Mac</b><small data-i18n="localRouteDetail">Private · Apple Vision + Translation</small></button>
+            <button data-route="managed" class="route-cloud"><b>Manga Sub Cloud</b><small data-i18n="cloudRouteDetail">Fastest · try it without an account</small></button>
+            <button data-route="byo"><b data-i18n="yourApiKey">Your API key</b><small data-i18n="byoRouteDetail">Local OCR · only recognized text leaves this Mac</small></button>
+            <p class="route-note" data-i18n="routeTransparency">See exactly where your data goes before translation starts.</p>
           </div>
 
           <section class="continuity" id="continuity-card" hidden>
-            <p class="eyebrow">SERIES MEMORY</p>
-            <h2>Dùng tên nhân vật quen thuộc?</h2>
-            <p>Manga Sub có thể tra tên series và ngôn ngữ bạn chọn từ nguồn đã duyệt. Không gửi ảnh, OCR, URL chương hay lịch sử đọc.</p>
-            <div><button id="lookup-accept" class="mini-primary">Dùng nguồn tra cứu</button><button id="lookup-decline">Chỉ dùng trên máy</button></div>
+            <p class="eyebrow" data-i18n="seriesMemory">SERIES MEMORY</p>
+            <h2 data-i18n="familiarNames">Use familiar character names?</h2>
+            <p data-i18n="continuityDetail">Manga Sub can look up the series title and selected language from approved sources. Images, OCR text, chapter URLs, and reading history are never sent.</p>
+            <div><button id="lookup-accept" class="mini-primary" data-i18n="useResearch">Use research sources</button><button id="lookup-decline" data-i18n="localOnly">Keep it on this Mac</button></div>
           </section>
         </section>
-        <footer class="side-footer"><span class="health-dot"></span><span id="route-summary">Chưa chọn route</span></footer>
+        <footer class="side-footer"><span class="health-dot"></span><span id="route-summary">Route not selected</span></footer>
       </aside>
 
       <section id="reader-workspace" class="reader-workspace">
-        <div id="reader-frame" class="reader-frame" aria-label="Trình đọc truyện nhúng"></div>
+        <div id="reader-frame" class="reader-frame" aria-label="Embedded comic reader" data-i18n-aria-label="embeddedReader"></div>
         <aside class="inspector">
-          <div class="inspector-heading"><p class="eyebrow">THIS SESSION</p><span class="live-dot"></span></div>
-          <h1 id="session-title">Một trang, một nhịp đọc.</h1>
-          <p id="session-detail">Dán link hoặc mở chương mẫu để bắt đầu.</p>
-          <div class="route-chip" id="route-chip">VI · Chưa chọn route</div>
+          <div class="inspector-heading"><p class="eyebrow" data-i18n="thisSession">THIS SESSION</p><span class="live-dot"></span></div>
+          <h1 id="session-title" data-i18n="sessionTitle">One page at a time.</h1>
+          <p id="session-detail" data-i18n="sessionDetail">Paste a URL or open the sample chapter to begin.</p>
+          <div class="route-chip" id="route-chip">VI · Route not selected</div>
           <dl class="mini-metrics">
-            <div><dt>SNAPSHOT</dt><dd id="snapshot-value">—</dd></div>
-            <div><dt>QUEUE</dt><dd id="queue-value">Idle</dd></div>
-            <div><dt>HISTORY</dt><dd id="history-value">Local</dd></div>
+            <div><dt data-i18n="snapshot">SNAPSHOT</dt><dd id="snapshot-value">—</dd></div>
+            <div><dt data-i18n="queue">QUEUE</dt><dd id="queue-value" data-i18n="idle">Idle</dd></div>
+            <div><dt data-i18n="history">HISTORY</dt><dd id="history-value">Local</dd></div>
           </dl>
           <section class="receipt" id="receipt-card">
-            <div class="receipt-title"><span>JOB RECEIPT</span><button id="copy-diagnostic" disabled>Copy ID</button></div>
-            <p>Chưa có job nào. Khi dịch, Manga Sub sẽ ghi rõ route thực tế và nơi dữ liệu được xử lý.</p>
+            <div class="receipt-title"><span data-i18n="jobReceipt">JOB RECEIPT</span><button id="copy-diagnostic" disabled data-i18n="copyId">Copy ID</button></div>
+            <p data-i18n="noReceipt">No jobs yet. Each translation receipt shows the route used and where data was processed.</p>
           </section>
-          <button class="open-sample" id="open-sample">Mở sample test được cấp phép →</button>
+          <button class="open-sample" id="open-sample" data-i18n="openSample">Open the licensed sample chapter →</button>
         </aside>
       </section>
 
       <section id="library-workspace" class="panel-workspace" hidden>
-        <div class="panel-heading"><p class="eyebrow">YOUR LIBRARY</p><h1>Đọc tiếp, đúng nơi bạn dừng lại.</h1><p>Lịch sử nằm trên thiết bị này. Private session không được ghi lại.</p></div>
+        <div class="panel-heading"><p class="eyebrow" data-i18n="yourLibrary">YOUR LIBRARY</p><h1 data-i18n="libraryTitle">Continue exactly where you stopped.</h1><p data-i18n="libraryDetail">Reading history stays on this device. Private sessions are never saved.</p></div>
         <div class="library-list" id="library-list"></div>
       </section>
 
       <section id="settings-workspace" class="panel-workspace settings-workspace" hidden>
-        <div class="panel-heading"><p class="eyebrow">PREFERENCES</p><h1>Chất lượng, ngôn ngữ và quyền riêng tư.</h1><p>Model và token chỉ hiện khi bạn chủ động mở phần nâng cao.</p></div>
+        <div class="panel-heading"><p class="eyebrow" data-i18n="preferences">PREFERENCES</p><h1 data-i18n="preferencesTitle">Quality, language, and privacy.</h1><p data-i18n="preferencesDetail">Model and token controls only appear in advanced settings.</p></div>
         <div class="settings-grid">
-          <section class="settings-section"><h2>Reader</h2>
-            <label>Source language<select id="source-language"><option value="auto">Detect automatically</option><option value="zh-Hans">Chinese (Simplified)</option><option value="zh-Hant">Chinese (Traditional)</option><option value="ja">Japanese</option><option value="ko">Korean</option><option value="en">English</option></select></label>
-            <label>Target language<select id="target-language"><option value="vi-VN">Vietnamese</option><option value="en-US">English</option><option value="fr-FR">French</option><option value="es-ES">Spanish</option><option value="de-DE">German</option><option value="pt-BR">Portuguese</option><option value="id-ID">Indonesian</option><option value="ja-JP">Japanese</option><option value="ko-KR">Korean</option><option value="zh-CN">Chinese (Simplified)</option><option value="zh-TW">Chinese (Traditional)</option></select></label>
-            <label>Định dạng dịch<select id="profile"><option value="fast">Fast</option><option value="balanced">Balanced</option><option value="quality">Quality</option></select></label>
+          <section class="settings-section"><h2 data-i18n="reader">Reader</h2>
+            <label><span data-i18n="appLanguage">App language</span><select id="ui-language"><option value="en">English</option><option value="vi">Tiếng Việt</option></select></label>
+            <label><span data-i18n="sourceLanguage">Source language</span><select id="source-language"><option value="auto" data-i18n="detectAutomatically">Detect automatically</option><option value="zh-Hans" data-i18n="chineseSimplified">Chinese (Simplified)</option><option value="zh-Hant" data-i18n="chineseTraditional">Chinese (Traditional)</option><option value="ja" data-i18n="japanese">Japanese</option><option value="ko" data-i18n="korean">Korean</option><option value="en" data-i18n="english">English</option></select></label>
+            <label><span data-i18n="targetLanguage">Target language</span><select id="target-language"><option value="vi-VN" data-i18n="vietnamese">Vietnamese</option><option value="en-US" data-i18n="english">English</option><option value="fr-FR" data-i18n="french">French</option><option value="es-ES" data-i18n="spanish">Spanish</option><option value="de-DE" data-i18n="german">German</option><option value="pt-BR" data-i18n="portuguese">Portuguese</option><option value="id-ID" data-i18n="indonesian">Indonesian</option><option value="ja-JP" data-i18n="japanese">Japanese</option><option value="ko-KR" data-i18n="korean">Korean</option><option value="zh-CN" data-i18n="chineseSimplified">Chinese (Simplified)</option><option value="zh-TW" data-i18n="chineseTraditional">Chinese (Traditional)</option></select></label>
+            <label><span data-i18n="translationProfile">Translation profile</span><select id="profile"><option value="fast">Fast</option><option value="balanced">Balanced</option><option value="quality">Quality</option></select></label>
           </section>
-          <section class="settings-section"><h2>Translation location</h2>
-            <label>Route mặc định<select id="default-route"><option value="ask">Ask each time</option><option value="local">On this Mac</option><option value="managed">Manga Sub Cloud</option><option value="byo">Your API key</option></select></label>
-            <p class="hint">Auto chỉ dùng route bạn đã duyệt. App không tự chuyển sang cloud.</p>
+          <section class="settings-section"><h2 data-i18n="translationLocation">Translation location</h2>
+            <label><span data-i18n="defaultRoute">Default route</span><select id="default-route"><option value="ask" data-i18n="askEachTime">Ask each time</option><option value="local" data-i18n="onThisMac">On this Mac</option><option value="managed">Manga Sub Cloud</option><option value="byo" data-i18n="yourApiKey">Your API key</option></select></label>
+            <p class="hint" data-i18n="routeHint">Automatic mode only uses routes you approved. The app never silently switches to cloud.</p>
           </section>
-          <section class="settings-section"><h2>Broker connection</h2>
-            <label>Broker endpoint<input id="broker-endpoint" placeholder="http://127.0.0.1:4100" /></label>
-            <label>Broker token <input id="provider-token" type="password" placeholder="Dán token để cập nhật" /></label>
-            <button id="save-token" class="text-action">Lưu token vào credential store</button>
-            <p class="hint" id="token-status">Token không được đồng bộ giữa thiết bị.</p>
+          <section class="settings-section"><h2 data-i18n="brokerConnection">Broker connection</h2>
+            <label><span data-i18n="brokerEndpoint">Broker endpoint</span><input id="broker-endpoint" placeholder="http://127.0.0.1:4100" /></label>
+            <label><span data-i18n="brokerToken">Broker token</span> <input id="provider-token" type="password" placeholder="Paste a token to update it" data-i18n-placeholder="tokenPlaceholder" /></label>
+            <button id="save-token" class="text-action" data-i18n="saveToken">Save token to credential store</button>
+            <p class="hint" id="token-status">Tokens are not synced between devices.</p>
           </section>
-          <section class="settings-section advanced"><h2>Your API key</h2>
-            <label>Provider<select id="byo-provider"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic Claude</option><option value="openai-compatible">OpenAI-compatible</option></select></label>
-            <label id="byo-base-row">API base URL<input id="byo-base-url" type="url" placeholder="https://api.deepseek.com/v1" /></label>
-            <label>API key<input id="byo-api-key" type="password" autocomplete="off" placeholder="Dán key để cập nhật" /></label>
-            <button id="save-byo-key" class="text-action">Lưu key vào credential store</button>
-            <p class="hint" id="byo-key-status">Key không được đồng bộ giữa thiết bị.</p>
-            <label>Model<input id="byo-model" list="byo-model-options" autocomplete="off" placeholder="Refresh catalog hoặc nhập model ID" /></label>
+          <section class="settings-section advanced"><h2 data-i18n="yourApiKey">Your API key</h2>
+            <label><span data-i18n="provider">Provider</span><select id="byo-provider"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic Claude</option><option value="openai-compatible">OpenAI-compatible</option></select></label>
+            <label id="byo-base-row"><span data-i18n="apiBaseUrl">API base URL</span><input id="byo-base-url" type="url" placeholder="https://api.deepseek.com/v1" /></label>
+            <label><span data-i18n="apiKey">API key</span><input id="byo-api-key" type="password" autocomplete="off" placeholder="Paste a key to update it" data-i18n-placeholder="keyPlaceholder" /></label>
+            <button id="save-byo-key" class="text-action" data-i18n="saveKey">Save key to credential store</button>
+            <p class="hint" id="byo-key-status">Keys are not synced between devices.</p>
+            <label><span data-i18n="model">Model</span><input id="byo-model" list="byo-model-options" autocomplete="off" placeholder="Refresh the catalog or enter a model ID" data-i18n-placeholder="modelPlaceholder" /></label>
             <datalist id="byo-model-options"></datalist>
-            <button id="refresh-models" class="text-action">Refresh model catalog</button>
-            <p class="hint" id="byo-model-status">Catalog được lấy trực tiếp từ provider; app không pin danh sách model.</p>
+            <button id="refresh-models" class="text-action" data-i18n="refreshCatalog">Refresh model catalog</button>
+            <p class="hint" id="byo-model-status" data-i18n="catalogHint">The catalog comes directly from the provider; Manga Sub does not pin a model list.</p>
           </section>
-          <section class="settings-section glossary-editor"><h2>Names used in this series</h2>
+          <section class="settings-section glossary-editor"><h2 data-i18n="seriesNames">Names used in this series</h2>
             <div id="glossary-list" class="glossary-list"></div>
-            <form id="add-term-form"><input id="term-input" placeholder="Tên gốc = Tên Việt" /><button>Thêm</button></form>
+            <form id="add-term-form"><input id="term-input" placeholder="Original name = Preferred name" data-i18n-placeholder="termPlaceholder" /><button data-i18n="add">Add</button></form>
           </section>
         </div>
       </section>
 
       <section id="migration-banner" class="migration-banner" hidden>
-        <p class="eyebrow">ENGINE UPDATE</p><h2>A newer Balanced engine is available</h2><p>Thiết lập cũ dùng Gemini 3.5 Flash. Trang đã lưu không thay đổi; bản dịch mới có thể đọc khác.</p>
-        <div><button data-choice="recommended" class="mini-primary">Dùng Balanced mới</button><button data-choice="keep">Giữ Gemini 3.5</button><button data-choice="later">Để sau</button></div>
+        <p class="eyebrow" data-i18n="engineUpdate">ENGINE UPDATE</p><h2 data-i18n="newEngine">A newer Balanced engine is available</h2><p data-i18n="engineDetail">Your previous setting used Gemini 3.5 Flash. Saved pages stay unchanged; new translations may read differently.</p>
+        <div><button data-choice="recommended" class="mini-primary" data-i18n="useNewBalanced">Use the new Balanced engine</button><button data-choice="keep" data-i18n="keepGemini">Keep Gemini 3.5</button><button data-choice="later" data-i18n="later">Later</button></div>
       </section>
       <div id="toast" class="toast" role="status" aria-live="polite"></div>
     </main>

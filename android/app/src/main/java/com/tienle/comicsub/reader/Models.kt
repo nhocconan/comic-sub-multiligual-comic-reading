@@ -6,6 +6,7 @@ import org.json.JSONObject
 data class ReaderSettings(
     val endpoint: String = ReaderPolicy.DEFAULT_ENDPOINT,
     val authKey: String = "",
+    val uiLanguage: String = "en",
     val targetLanguage: String = "vi",
     val route: String = "ask",
     val model: String = ReaderPolicy.DEFAULT_MODEL,

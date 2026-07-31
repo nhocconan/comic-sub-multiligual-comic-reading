@@ -121,7 +121,7 @@ KOHARU_API_BASE="http://127.0.0.1:4000/api/v1" \
 
 broker_health="$(curl --silent --max-time 2 "http://127.0.0.1:4100/health" 2>/dev/null || true)"
 if [[ "$broker_health" == *'"adapter":"explicit-test"'* ]]; then
-  printf 'Port 4100 is running the explicit test broker. Stop it before starting Comic Sub.\n' >&2
+  printf 'Port 4100 is running the explicit test broker. Stop it before starting Manga Sub.\n' >&2
   exit 1
 fi
 if [[ "$broker_health" != *'"adapter":"koharu"'* ]]; then
@@ -144,13 +144,13 @@ for _attempt in $(seq 1 30); do
   sleep 0.25
 done
 if [[ "$broker_ready" != "true" ]]; then
-  printf 'Comic Sub Broker did not become ready. Check %s/broker.log.\n' "$runtime_dir" >&2
+  printf 'Manga Sub Broker did not become ready. Check %s/broker.log.\n' "$runtime_dir" >&2
   exit 1
 fi
 
 printf '%s\n' "$runtime_mode" >"${runtime_dir}/active-mode"
 
-printf '\nComic Sub runtime is ready (%s).\n' "$runtime_mode"
+printf '\nManga Sub runtime is ready (%s).\n' "$runtime_mode"
 printf 'Broker: http://127.0.0.1:4100 (Koharu adapter, no mock)\n'
 printf 'Load the extension once from:\n%s/extension\n' "$project_dir"
 

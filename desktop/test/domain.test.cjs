@@ -33,6 +33,12 @@ test('production broker is the zero-config default', () => {
   )
 })
 
+test('desktop UI defaults to English and persists a valid Vietnamese choice', () => {
+  assert.equal(migrateSettings({}).settings.uiLanguage, 'en')
+  assert.equal(migrateSettings({ uiLanguage: 'vi' }).settings.uiLanguage, 'vi')
+  assert.equal(migrateSettings({ uiLanguage: 'unsupported' }).settings.uiLanguage, 'en')
+})
+
 test('receipt makes an external AI text destination explicit', () => {
   const receipt = receiptFor({ route: 'byo', serverUrl: 'https://reader.example.test' })
   assert.equal(receipt.imageDestination, 'This computer')

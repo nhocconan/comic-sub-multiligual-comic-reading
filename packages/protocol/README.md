@@ -1,4 +1,4 @@
-# Comic Sub shared protocol
+# Manga Sub shared protocol
 
 Runtime-validated, dependency-free messages shared by the embedded reader
 clients and the local translation broker.

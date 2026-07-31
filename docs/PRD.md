@@ -1,4 +1,4 @@
-# PRD — Comic Sub
+# PRD — Manga Sub
 
 Status: implementation baseline  
 Date: 2026-07-29
@@ -12,7 +12,7 @@ download, export, or republish a chapter.
 
 ## Product promise
 
-Open a comic page on any ordinary Chromium-accessible website, click Comic Sub,
+Open a comic page on any ordinary Chromium-accessible website, click Manga Sub,
 and keep scrolling. The extension finds likely comic images as they load, sends
 only those image bytes to a local processing companion, removes the detected
 Chinese lettering, and typesets Vietnamese back into the corresponding bubbles.
@@ -25,10 +25,10 @@ Baozimh is a required real-world fixture, not a hard-coded product boundary.
 
 1. The user starts the local companion and configures a translation provider
    there. Provider secrets stay outside the extension.
-2. The user opens a comic chapter and clicks Comic Sub.
+2. The user opens a comic chapter and clicks Manga Sub.
 3. The popup reports the candidate image count and asks for access only to the
    image origins required by that page.
-4. Comic Sub translates the visible page and a small look-ahead window.
+4. Manga Sub translates the visible page and a small look-ahead window.
 5. The reader scrolls normally, can reveal the original instantly, exclude a
    false-positive image, retry failures, or pause automatic work.
 

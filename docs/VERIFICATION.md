@@ -2,7 +2,7 @@
 
 Date: 2026-07-29  
 Platform: Apple M1 Pro, macOS arm64  
-Extension: Comic Sub 0.1.0  
+Extension: Manga Sub 0.1.0
 Companion contract: Koharu 0.61.2
 
 ## Automated checks
@@ -139,5 +139,5 @@ future real run does not need to fetch them again.
 
 The corrected project root did not contain an `AGENTS.md` or `CHECKLIST.md`. The
 LMS checklist from the mistakenly selected original workspace is not applicable;
-no LMS files remain changed. Comic Sub's own PRD gates and `docs/TEST_PLAN.md`
+no LMS files remain changed. Manga Sub's own PRD gates and `docs/TEST_PLAN.md`
 were used instead.

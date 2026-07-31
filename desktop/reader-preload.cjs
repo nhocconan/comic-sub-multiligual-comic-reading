@@ -8,11 +8,72 @@ let sourceVisible = false
 let ui
 let openedAt = Date.now()
 let hasAdvanced = false
+let readerUiLanguage = 'en'
 const navigationId = `nav:${crypto.randomUUID()}`
 let snapshotId = `snapshot:${crypto.randomUUID()}`
 const liveOverlays = new Set()
 const overlayLayers = new Map()
 let overlayRelayoutFrame = 0
+
+const readerMessages = {
+  en: {
+    finding: 'Finding comic images…',
+    original: 'Original',
+    translated: 'Translated',
+    all: 'All',
+    translate: 'Translate',
+    sample: 'Sample mode · broker disabled',
+    imagesReady: '{count} images ready',
+    noImages: 'No comic images found',
+    confirmTitle: 'Translate {count} loaded images?',
+    confirmDetail: 'New images that appear while you read will wait. Managed cloud jobs are capped at USD 0.50.',
+    keepReading: 'Keep reading',
+    confirmTranslate: 'Translate {count}',
+    alreadyTranslated: 'Current images are already translated',
+    preparing: 'Preparing {count} translation jobs…',
+    stopping: 'Stopping jobs…',
+    progress: '{state} · {count} images',
+    translatedCount: 'Translated {done}/{total}',
+    jobFailed: 'Translation failed',
+    cancelled: 'Jobs cancelled · original remains visible',
+  },
+  vi: {
+    finding: 'Đang tìm ảnh truyện…',
+    original: 'Bản gốc',
+    translated: 'Bản dịch',
+    all: 'Tất cả',
+    translate: 'Dịch',
+    sample: 'Chế độ mẫu · broker bị tắt',
+    imagesReady: '{count} ảnh sẵn sàng',
+    noImages: 'Không tìm thấy ảnh truyện',
+    confirmTitle: 'Dịch {count} ảnh đã tải?',
+    confirmDetail: 'Ảnh mới xuất hiện khi đọc sẽ chờ lượt sau. Job Manga Sub Cloud được giới hạn ở 0,50 USD.',
+    keepReading: 'Đọc tiếp',
+    confirmTranslate: 'Dịch {count} ảnh',
+    alreadyTranslated: 'Các ảnh hiện tại đã được dịch',
+    preparing: 'Đang chuẩn bị {count} job dịch…',
+    stopping: 'Đang dừng job…',
+    progress: '{state} · {count} ảnh',
+    translatedCount: 'Đã dịch {done}/{total}',
+    jobFailed: 'Dịch thất bại',
+    cancelled: 'Đã hủy job · ảnh gốc vẫn hiển thị',
+  },
+}
+
+function readerText(key, values = {}) {
+  const template = readerMessages[readerUiLanguage][key] || readerMessages.en[key] || key
+  return Object.entries(values).reduce(
+    (result, [name, value]) => result.replaceAll(`{${name}}`, String(value)),
+    template,
+  )
+}
+
+function refreshReaderUi() {
+  if (!ui?.root?.isConnected) return
+  ui.current.textContent = readerText('translate')
+  ui.all.textContent = readerText('all')
+  ui.reveal.textContent = sourceVisible ? readerText('translated') : readerText('original')
+}
 
 function idFor(index) { return `cs-candidate-${index}` }
 function safeText(value) { return String(value || '').replace(/[<>]/g, '').slice(0, 120) }
@@ -65,7 +126,7 @@ function createUi() {
   document.documentElement.append(style)
   const root = document.createElement('aside')
   root.id = 'comic-sub-float'
-  root.innerHTML = '<span class="mark">C</span><span class="status">Finding comic images…</span><button class="reveal">Original</button><button class="all">All</button><button class="primary current">Translate</button>'
+  root.innerHTML = `<span class="mark">M</span><span class="status">${readerText('finding')}</span><button class="reveal">${readerText('original')}</button><button class="all">${readerText('all')}</button><button class="primary current">${readerText('translate')}</button>`
   ;(document.body || document.documentElement).append(root)
   const result = {
     root,
@@ -136,7 +197,11 @@ function scan() {
   }
   snapshotId = `snapshot:${crypto.randomUUID()}`
   const isTestMode = location.protocol === 'file:'
-  createUi().status.textContent = isTestMode ? 'Sample mode · broker disabled' : candidates.length ? `${candidates.length} images ready` : 'No comic images found'
+  createUi().status.textContent = isTestMode
+    ? readerText('sample')
+    : candidates.length
+      ? readerText('imagesReady', { count: candidates.length })
+      : readerText('noImages')
   const snapshot = {
     protocolVersion: { major: 1, minor: 0 }, snapshotId, navigationId,
     topFrameOrigin: location.protocol === 'file:' ? 'https://sample.invalid' : location.origin,
@@ -176,7 +241,7 @@ function openAllConfirm() {
   const count = candidates.length
   const panel = document.createElement('section')
   panel.id = 'comic-sub-confirm'
-  panel.innerHTML = `<h3>Translate ${count} loaded images?</h3><p>New images that appear while you read will wait. Managed cloud jobs are capped at USD 0.50.</p><div class="cs-actions"><button class="cancel">Keep reading</button><button class="go">Translate ${count}</button></div>`
+  panel.innerHTML = `<h3>${readerText('confirmTitle', { count })}</h3><p>${readerText('confirmDetail')}</p><div class="cs-actions"><button class="cancel">${readerText('keepReading')}</button><button class="go">${readerText('confirmTranslate', { count })}</button></div>`
   document.body.append(panel)
   panel.querySelector('.cancel').addEventListener('click', () => panel.remove())
   panel.querySelector('.go').addEventListener('click', () => { panel.remove(); startAll() })
@@ -194,8 +259,18 @@ function startVisible() {
 function startAll() { scan(); requestBroker('all', candidates.filter((item) => !item.translated)) }
 
 function requestBroker(scope, items) {
-  if (!items.length) { createUi().status.textContent = 'No images waiting'; return }
-  createUi().status.textContent = `Preparing ${items.length} broker jobs…`
+  if (!items.length) {
+    createUi().status.textContent = readerText('alreadyTranslated')
+    ipcRenderer.send('reader:status', {
+      type: 'job-complete',
+      alreadyTranslated: true,
+      candidateIndex: activeIndex,
+      candidateCount: candidates.length,
+      title: document.title,
+    })
+    return
+  }
+  createUi().status.textContent = readerText('preparing', { count: items.length })
   ipcRenderer.send('reader:status', { type: 'translate-request', scope, snapshotId, navigationId, candidateIds: items.map((item) => item.candidateId) })
 }
 
@@ -341,17 +416,21 @@ function renderOverlay(item, region, page) {
 function toggleSource() {
   sourceVisible = !sourceVisible
   for (const overlay of document.querySelectorAll('.comic-sub-overlay')) overlay.hidden = sourceVisible
-  createUi().reveal.textContent = sourceVisible ? 'Translated' : 'Original'
+  createUi().reveal.textContent = sourceVisible ? readerText('translated') : readerText('original')
 }
 
 ipcRenderer.on('reader:command', (_event, command = {}) => {
+  if (command.type === 'ui-language') {
+    readerUiLanguage = command.language === 'vi' ? 'vi' : 'en'
+    refreshReaderUi()
+  }
   if (command.type === 'scan') scan()
   if (command.type === 'translate-current') startVisible()
   if (command.type === 'translate-all-now') startAll()
   if (command.type === 'translate-all' || command.type === 'open-all-confirm') openAllConfirm()
-  if (command.type === 'pause') { ipcRenderer.send('reader:status', { type: 'translate-cancel' }); createUi().status.textContent = 'Stopping jobs…' }
+  if (command.type === 'pause') { ipcRenderer.send('reader:status', { type: 'translate-cancel' }); createUi().status.textContent = readerText('stopping') }
   if (command.type === 'reveal-original') toggleSource()
-  if (command.type === 'broker-progress' && command.state) createUi().status.textContent = `${command.state} · ${candidates.length} images`
+  if (command.type === 'broker-progress' && command.state) createUi().status.textContent = readerText('progress', { state: command.state, count: candidates.length })
   if (command.type === 'attach-result') {
     const item = candidates.find((candidate) => candidate.candidateId === command.candidateId)
     if (!item) return
@@ -365,11 +444,14 @@ ipcRenderer.on('reader:command', (_event, command = {}) => {
       overlay.dataset.comicSubJob = command.jobId
     }
     item.translated = true; item.status = 'done'
-    createUi().status.textContent = `Translated ${candidates.filter((candidate) => candidate.translated).length}/${candidates.length}`
+    createUi().status.textContent = readerText('translatedCount', {
+      done: candidates.filter((candidate) => candidate.translated).length,
+      total: candidates.length,
+    })
     ipcRenderer.send('reader:status', { type: 'job-complete', candidateIndex: activeIndex, candidateCount: candidates.length, title: document.title })
   }
-  if (command.type === 'broker-failure') createUi().status.textContent = command.message || 'Broker job failed'
-  if (command.type === 'broker-cancelled') createUi().status.textContent = 'Jobs cancelled · original remains visible'
+  if (command.type === 'broker-failure') createUi().status.textContent = command.message || readerText('jobFailed')
+  if (command.type === 'broker-cancelled') createUi().status.textContent = readerText('cancelled')
   if (command.type === 'resume') {
     scan(); const item = candidates[Number(command.candidateIndex) || 0]
     item?.image.scrollIntoView({ block: 'center', behavior: 'smooth' })

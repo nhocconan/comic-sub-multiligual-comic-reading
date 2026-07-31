@@ -1,4 +1,4 @@
-# Comic Sub Reader for Android
+# Manga Sub Reader for Android
 
 Native Android embedded reader with a hardened `WebView`, per-device target
 language, current/snapshot translation, immutable broker jobs, history/resume,

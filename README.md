@@ -1,6 +1,6 @@
-# Comic Sub
+# Manga Sub
 
-Comic Sub is a cross-platform comic browser with translation built into the
+Manga Sub is a cross-platform comic browser with translation built into the
 reader. Paste a chapter URL into the macOS, iOS, or Android app, browse normally,
 then translate the visible page or every discovered page. The original site
 remains inside a hardened web view; translated regions are attached as
@@ -43,7 +43,7 @@ claim. The quality benchmark required for that claim is in
   Koharu's process-global model setting behind a serialized server boundary.
 
 Public terminology research is opt-in per series. After the first successful
-page, Comic Sub keeps local continuity and can research public names via
+page, Manga Sub keeps local continuity and can research public names via
 Wikidata, target-language Wikipedia, and AniList. A researched character name
 becomes active only after it literally appears in local OCR; other results stay
 quarantined.
@@ -100,7 +100,7 @@ the existing project team and bundle identifier.
 3. Choose **Load unpacked**.
 4. Select
    `/Users/Shared/TienLe-Data/Workspace/AI-Dev/Online-comic-translation/extension`.
-5. Pin **Comic Sub**.
+5. Pin **Manga Sub**.
 
 #### Safari on iPhone and iPad
 
@@ -112,7 +112,7 @@ TestFlight, enabling, and permission steps.
 
 ### 4. Read
 
-1. Paste any HTTP(S) chapter URL into Comic Sub.
+1. Paste any HTTP(S) chapter URL into Manga Sub.
 2. Choose a target language and processing route.
 3. Press **Dịch phần đang đọc** or **Dịch tất cả**.
 4. Keep scrolling; history stores a resilient resume anchor outside Private
@@ -149,10 +149,10 @@ Native apps use the Broker root instead:
 https://comic-be.dep.app
 ```
 
-The gateway routes `/v1/*` to Comic Sub Broker and keeps `/api/v1/*` for the
+The gateway routes `/v1/*` to Manga Sub Broker and keeps `/api/v1/*` for the
 legacy extension/Koharu API.
 
-Enter an optional auth key in the popup. Comic Sub sends it as:
+Enter an optional auth key in the popup. Manga Sub sends it as:
 
 ```text
 Authorization: Bearer YOUR_KEY
@@ -173,7 +173,7 @@ The cloud provider receives OCR text, not the comic image.
   try Flash Lite when cost and quota matter most.
 - **DeepSeek:** strongest budget paid option in the current Koharu catalog.
   Start with **DeepSeek V4 Flash** for ordinary dialogue translation; use V4 Pro
-  only when a quality comparison justifies its extra cost. Comic Sub does not
+  only when a quality comparison justifies its extra cost. Manga Sub does not
   claim that the DeepSeek API is free.
 - **OpenAI / Claude:** retained as quality bake-off choices, not required for
   the default reading path.
@@ -198,7 +198,7 @@ Koharu models and a provider.
 
 ## Privacy and copyright
 
-Comic Sub is designed for personal, ephemeral reading overlays. It does not
+Manga Sub is designed for personal, ephemeral reading overlays. It does not
 crawl links, download chapters, export translated pages, or republish comics.
 Detection and OCR run on the selected Koharu host. With a remote Koharu, comic
 page images are uploaded to that server over HTTPS. When a cloud translator is

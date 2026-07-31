@@ -1,6 +1,7 @@
 'use strict'
 
 const DEFAULT_SETTINGS = Object.freeze({
+  uiLanguage: 'en',
   targetLanguage: 'vi-VN',
   sourceLanguage: 'auto',
   route: 'ask',
@@ -39,6 +40,9 @@ function estimateBatch(count, route) {
 
 function migrateSettings(saved = {}) {
   const next = { ...DEFAULT_SETTINGS, ...saved }
+  if (!['en', 'vi'].includes(next.uiLanguage)) {
+    next.uiLanguage = DEFAULT_SETTINGS.uiLanguage
+  }
   if (!['auto', 'zh-Hans', 'zh-Hant', 'ja', 'ko', 'en'].includes(next.sourceLanguage)) {
     next.sourceLanguage = DEFAULT_SETTINGS.sourceLanguage
   }

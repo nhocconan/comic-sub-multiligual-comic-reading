@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Comic Sub</title>
+    <title>Manga Sub</title>
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
     <main class="shell">
       <header class="masthead">
         <div>
-          <p class="eyebrow">Comic Sub</p>
+          <p class="eyebrow">Manga Sub</p>
           <h1>Dịch trên trang đang đọc</h1>
         </div>
         <span class="health-dot" id="health-dot" data-tone="idle" aria-hidden="true"></span>
@@ -18,7 +18,7 @@
 
       <section class="status-strip" aria-labelledby="companion-heading">
         <div>
-          <h2 id="companion-heading">Koharu</h2>
+          <h2 id="companion-heading">Máy chủ dịch</h2>
           <p id="health-state" class="status-copy" aria-live="polite">Đang kiểm tra…</p>
         </div>
         <button class="text-button" id="refresh-button" type="button">Kiểm tra</button>
@@ -126,7 +126,7 @@
           </div>
 
           <label class="field" id="custom-model-field" hidden>
-            <span>ID model trong Koharu</span>
+            <span>ID model trên máy chủ</span>
             <input id="custom-model" type="text" autocomplete="off" spellcheck="false" placeholder="provider/model">
           </label>
           <p class="hint model-note" id="model-note">
@@ -174,7 +174,7 @@
           <p class="hint">Mỗi dòng một cặp “nguyên tác = bản dịch”.</p>
 
           <label class="field">
-            <span>Địa chỉ Koharu</span>
+            <span>Địa chỉ máy chủ dịch</span>
             <input
               id="endpoint"
               type="url"
@@ -204,7 +204,7 @@
       </details>
 
       <footer>
-        <p>Provider key vẫn chỉ cấu hình trong Koharu.</p>
+        <p>API key chỉ được cấu hình và lưu ở máy chủ dịch.</p>
         <button class="text-button quiet-danger" id="clear-cache-button" type="button">
           Xoá cache
         </button>

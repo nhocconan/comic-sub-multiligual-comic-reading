@@ -406,7 +406,13 @@ function createReader({ url, isPrivate = privateSession } = {}) {
     emit('app:navigation', { url: nextUrl, privateSession })
   })
   readerView.webContents.on('render-process-gone', () => emit('app:reader-crashed'))
-  readerView.webContents.on('dom-ready', () => readerView?.webContents.send('reader:command', { type: 'scan' }))
+  readerView.webContents.on('dom-ready', () => {
+    readerView?.webContents.send('reader:command', {
+      type: 'ui-language',
+      language: state.settings.uiLanguage,
+    })
+    readerView?.webContents.send('reader:command', { type: 'scan' })
+  })
   const target = url || `file://${path.join(__dirname, 'app', 'sample.html')}`
   if (target.startsWith('file:')) readerView.webContents.loadFile(path.join(__dirname, 'app', 'sample.html'))
   else readerView.webContents.loadURL(target)
@@ -1085,6 +1091,7 @@ ipcMain.handle('app:save-settings', async (_event, patch) => {
   const allowedRoutes = new Set(['ask', 'local', 'managed', 'byo'])
   const previousProvider = state.settings.byoProvider
   const next = { ...state.settings, ...patch }
+  if (!['en', 'vi'].includes(next.uiLanguage)) next.uiLanguage = 'en'
   if (!['auto', 'zh-Hans', 'zh-Hant', 'ja', 'ko', 'en'].includes(next.sourceLanguage)) {
     next.sourceLanguage = 'auto'
   }
@@ -1105,6 +1112,9 @@ ipcMain.handle('app:save-settings', async (_event, patch) => {
   if (typeof next.serverUrl === 'string' && next.serverUrl.trim()) next.serverUrl = safeUrl(next.serverUrl)
   state.settings = next
   saveState()
+  if (Object.hasOwn(patch || {}, 'uiLanguage')) {
+    commandReader({ type: 'ui-language', language: next.uiLanguage })
+  }
   if (next.byoProvider !== previousProvider) {
     await refreshProviderKeyStatus(next.byoProvider)
   }

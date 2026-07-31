@@ -14,6 +14,14 @@ class ReaderPolicyTest {
     }
 
     @Test
+    fun appLanguageDefaultsToEnglishIndependentlyOfTranslationLanguage() {
+        val settings = ReaderSettings()
+
+        assertEquals("en", settings.uiLanguage)
+        assertEquals("vi", settings.targetLanguage)
+    }
+
+    @Test
     fun normalizesChapterUrls() {
         assertEquals("https://example.com/chapter/1", ReaderPolicy.normalizedWebUrl("example.com/chapter/1"))
         assertNull(ReaderPolicy.normalizedWebUrl("javascript:alert(1)"))

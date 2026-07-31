@@ -7,7 +7,7 @@
         android:allowBackup="false"
         android:fullBackupContent="false"
         android:icon="@drawable/comic_sub_app_icon"
-        android:label="Comic Sub"
+        android:label="Manga Sub"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.ComicSub"

@@ -1,8 +1,8 @@
 {
-  "name": "comic-sub-manga-translator",
+  "name": "manga-sub-translator",
   "version": "0.2.3",
   "private": true,
-  "description": "Cross-platform embedded comic reader and translation system powered by Koharu.",
+  "description": "Cross-platform embedded comic reader with local OCR and configurable translation routes.",
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.cjs",

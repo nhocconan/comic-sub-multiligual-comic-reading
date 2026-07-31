@@ -31,7 +31,7 @@ const MODEL_PRESETS = Object.freeze({
     {
       value: 'gemini-3.6-flash',
       label: 'Gemini 3.6 Flash · paid, cân bằng',
-      note: 'Model paid cân bằng chất lượng và chi phí; Koharu chấp nhận model ID này dù catalog 0.61.2 chưa liệt kê.',
+      note: 'Model paid cân bằng chất lượng và chi phí; máy chủ chấp nhận model ID này dù catalog chưa liệt kê.',
     },
     {
       value: 'gemini-3.5-flash',
@@ -46,7 +46,7 @@ const MODEL_PRESETS = Object.freeze({
     {
       value: 'gemini-flash-lite-latest',
       label: 'Gemini Flash Lite latest · tiết kiệm',
-      note: 'Alias tiết kiệm do Koharu cung cấp; model đích có thể thay đổi theo thời gian.',
+      note: 'Alias tiết kiệm do máy chủ cung cấp; model đích có thể thay đổi theo thời gian.',
     },
     {
       value: 'gemini-3.1-pro-preview',
@@ -58,14 +58,14 @@ const MODEL_PRESETS = Object.freeze({
     {
       value: 'gpt-5.5',
       label: 'GPT-5.5',
-      note: 'Preset để đối chiếu; chi phí và độ trễ phụ thuộc Koharu.',
+      note: 'Preset để đối chiếu; chi phí và độ trễ phụ thuộc máy chủ.',
     },
   ],
   claude: [
     {
       value: 'claude-sonnet-4-6',
       label: 'Claude Sonnet 4.6',
-      note: 'Preset để đối chiếu; chi phí và độ trễ phụ thuộc Koharu.',
+      note: 'Preset để đối chiếu; chi phí và độ trễ phụ thuộc máy chủ.',
     },
   ],
   deepseek: [
@@ -220,7 +220,7 @@ function readSettings() {
       ? elements.customModel.value.trim()
       : elements.model.value
   if (!chosenModel) {
-    const error = new Error('Nhập ID model đã cấu hình trong Koharu.')
+    const error = new Error('Nhập ID model đã cấu hình trên máy chủ.')
     error.field = 'model'
     throw error
   }
@@ -292,7 +292,7 @@ function modelsForProvider(provider) {
       return {
         value,
         label: preset?.label || model.name || value,
-        note: preset?.note || 'Model được đọc trực tiếp từ catalog Koharu.',
+        note: preset?.note || 'Model được đọc trực tiếp từ catalog máy chủ.',
       }
     })
     .filter(Boolean)
@@ -339,7 +339,7 @@ function updateModelField() {
     (item) => item.value === elements.model.value,
   )
   elements.modelNote.textContent =
-    preset?.note || 'Nhập đúng ID model đã cấu hình trong Koharu.'
+    preset?.note || 'Nhập đúng ID model đã cấu hình trên máy chủ.'
 }
 
 function applySettings(settings) {
@@ -492,7 +492,7 @@ async function ensureEndpointPermission(endpoint, requestPermission = false) {
     ? await chrome.permissions.request({ origins })
     : await chrome.permissions.contains({ origins })
   if (!granted) {
-    throw new Error('Cần cấp quyền cho domain Koharu remote rồi bấm Kết nối lại.')
+    throw new Error('Cần cấp quyền cho domain máy chủ từ xa rồi bấm Kết nối lại.')
   }
 }
 
@@ -606,12 +606,12 @@ function renderHealth(response) {
   const state = response?.state || (response?.ok ? 'ready' : 'offline')
   const descriptions = {
     ready: response?.version
-      ? `Sẵn sàng · Koharu ${response.version}`
+      ? `Sẵn sàng · máy chủ ${response.version}`
       : 'Sẵn sàng nhận ảnh.',
     booting: 'Đang khởi động hoặc tải model…',
-    provider_not_configured: 'Chưa cấu hình nhà cung cấp trong Koharu.',
-    incompatible: 'Phiên bản Koharu chưa tương thích.',
-    offline: 'Không kết nối được Koharu.',
+    provider_not_configured: 'Chưa cấu hình nhà cung cấp trên máy chủ.',
+    incompatible: 'Phiên bản máy chủ chưa tương thích.',
+    offline: 'Không kết nối được máy chủ dịch.',
   }
 
   elements.healthState.textContent =
@@ -647,7 +647,7 @@ async function checkHealth(requestPermission = false) {
     renderHealth({
       ok: false,
       state: 'offline',
-      detail: errorMessage(error, 'Không kết nối được Koharu.'),
+      detail: errorMessage(error, 'Không kết nối được máy chủ dịch.'),
     })
   } finally {
     setBusy(elements.refreshButton, false)
@@ -671,7 +671,7 @@ async function scanPage() {
     await injectContent(tab.id)
     const settings = await persistSettings()
     if (!settings) {
-      throw new Error('Sửa địa chỉ Koharu trước khi quét.')
+      throw new Error('Sửa địa chỉ máy chủ dịch trước khi quét.')
     }
 
     const response = await sendToTab({

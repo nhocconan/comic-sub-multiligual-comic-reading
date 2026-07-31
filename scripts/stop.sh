@@ -17,7 +17,7 @@ if [[ -f "$broker_pid_file" ]]; then
       fi
       sleep 0.25
     done
-    printf 'Stopped Comic Sub Broker.\n'
+    printf 'Stopped Manga Sub Broker.\n'
   fi
   rm -f "$broker_pid_file"
 fi
@@ -44,4 +44,4 @@ if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
 fi
 
 rm -f "${runtime_dir}/active-mode"
-printf 'Comic Sub runtime is stopped. Model and credential volumes were preserved.\n'
+printf 'Manga Sub runtime is stopped. Model and credential volumes were preserved.\n'
