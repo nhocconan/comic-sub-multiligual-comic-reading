@@ -8,8 +8,10 @@
   build.
 - Non-blocking copyright attribution linking to nhocconan on desktop, browser,
   iOS setup, Android settings, and project documentation.
-- A GitHub Actions Windows release job that refuses to publish without the
-  configured signing certificate; the Windows asset is pending those secrets.
+- A GitHub Actions Windows release job that builds on `windows-latest`, submits
+  the installer to SignPath, verifies Authenticode, and refuses to publish
+  without the required SignPath configuration. The Windows asset remains
+  pending SignPath approval and repository configuration.
 
 ### Changed
 

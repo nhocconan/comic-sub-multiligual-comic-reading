@@ -48,6 +48,12 @@ Copyright © 2026 [nhocconan](https://x.com/nhocconan)
 - [x] Record verification results and non-applicable checklist items.
 - [x] Validate Apple conversion, app/extension bundle IDs, embedded resources,
   plugin registration, and responsive iPhone/iPad containing-app layouts.
+- [ ] Choose and publish an OSI-approved project license before applying for
+  SignPath Foundation Windows signing.
+- [ ] Apply for SignPath Foundation, install its GitHub App, and configure the
+  four repository values documented in `docs/WINDOWS_SIGNING.md`.
+- [ ] Run the Windows release workflow and verify the uploaded Authenticode
+  signer before publishing the first Windows asset.
 
 ## Quality work after functional v1
 

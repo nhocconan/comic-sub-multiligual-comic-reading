@@ -13,10 +13,11 @@ Copyright © 2026 [nhocconan](https://x.com/nhocconan).
 - [Windows x64 installer / release page](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest)
 - [All releases and checksums](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest)
 
-The Windows installer is built in GitHub Actions and is published only when the
-repository's Windows signing certificate secrets are present; the release page
-is the source of truth until that certificate is configured. The macOS build is
-built and signed with the maintainer's local Developer ID certificate before its
+The Windows installer is built on `windows-latest` in GitHub Actions and is
+published only after a SignPath signing request returns a valid Authenticode
+signature. The workflow fails closed when SignPath is not configured, so an
+unsigned installer is never presented as a release. The macOS build is built
+and signed with the maintainer's local Developer ID certificate before its
 release asset is uploaded.
 
 Android and iOS builds are not public downloads yet. Contact
@@ -92,7 +93,7 @@ npm run verify
 
 # Installable desktop package for the current host
 npm run dist:mac --prefix desktop   # macOS, signed by the local keychain
-npm run dist:win --prefix desktop   # Windows, signed in GitHub Actions
+npm run dist:win --prefix desktop   # Windows package; release signing runs in GitHub Actions
 
 # Android debug build
 (cd android && ./gradlew test assembleDebug)
@@ -109,9 +110,11 @@ xcodebuild \
 
 The Windows release workflow is
 [`.github/workflows/release-desktop.yml`](.github/workflows/release-desktop.yml).
-Set `WINDOWS_CSC_LINK` to a base64-encoded `.p12` certificate and
-`WINDOWS_CSC_KEY_PASSWORD` in GitHub Actions secrets. The workflow refuses to
-publish an unsigned installer.
+It builds the installer on GitHub-hosted Windows, submits the artifact to
+[SignPath](https://signpath.org/), verifies the returned Authenticode signature,
+and then uploads the signed installer. Configure the four repository values
+listed in [`docs/WINDOWS_SIGNING.md`](docs/WINDOWS_SIGNING.md); the workflow
+refuses to publish when any value is missing.
 
 ## Project map
 
@@ -143,6 +146,7 @@ to copy or redistribute a chapter.
 - [PRD and release gates](docs/PRD.md)
 - [Remote server guide](docs/REMOTE_SERVER.md)
 - [Privacy policy](docs/PRIVACY.md)
+- [Windows signing setup](docs/WINDOWS_SIGNING.md)
 - [iOS/Safari build and TestFlight guide](docs/IOS_SAFARI.md)
 - [Verification record](docs/VERIFICATION.md)
 - [Research notes](docs/RESEARCH.md)
