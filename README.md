@@ -142,6 +142,7 @@ to copy or redistribute a chapter.
 - [Architecture decisions](docs/ARCHITECTURE.md)
 - [PRD and release gates](docs/PRD.md)
 - [Remote server guide](docs/REMOTE_SERVER.md)
+- [Privacy policy](docs/PRIVACY.md)
 - [iOS/Safari build and TestFlight guide](docs/IOS_SAFARI.md)
 - [Verification record](docs/VERIFICATION.md)
 - [Research notes](docs/RESEARCH.md)
