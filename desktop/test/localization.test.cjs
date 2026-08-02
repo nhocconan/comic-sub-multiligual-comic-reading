@@ -49,8 +49,8 @@ test('desktop exposes a bounded translated chapter cache setting', () => {
 
 test('desktop keeps Library heading readable and attribution outside the reader', () => {
   assert.match(index, /class="library-workspace panel-workspace"|id="library-workspace" class="panel-workspace"/)
-  assert.match(styles, /\.library-workspace \.panel-heading h1[\s\S]*white-space: nowrap/)
-  assert.match(styles, /@media \(max-width: 720px\)[\s\S]*\.library-workspace \.panel-heading h1[\s\S]*white-space: normal/)
+  assert.match(styles, /#library-workspace \.panel-heading h1[\s\S]*white-space: nowrap/)
+  assert.match(styles, /@media \(max-width: 720px\)[\s\S]*#library-workspace \.panel-heading h1[\s\S]*white-space: normal/)
   assert.match(index, /Copyright © 2026 <a href="https:\/\/x\.com\/nhocconan"/)
   assert.match(index, /class="side-footer"[\s\S]*class="copyright-link"/)
 })
