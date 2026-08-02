@@ -77,8 +77,9 @@ switches from a route you approved to cloud processing.
 
 ## Install and run locally
 
-Requirements: Node.js 22+, a configured Koharu instance for real translation,
-and Xcode/Android Studio only when building the mobile targets.
+Requirements: Node.js 22+, Python 3 with Pillow for desktop icon generation, a
+configured Koharu instance for real translation, and Xcode/Android Studio only
+when building the mobile targets.
 
 ```bash
 git clone https://github.com/nhocconan/comic-sub-multiligual-comic-reading.git

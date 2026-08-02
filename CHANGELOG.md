@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.5] - 2026-08-02
+
+### Added
+
+- A GitHub Actions Windows x64 installer build with a SHA-256 sidecar.
+- First-launch guidance for the intentionally unsigned Windows installer.
+
+### Fixed
+
+- Windows desktop builds now install Pillow for icon generation and skip the
+  macOS-only `iconutil` step.
+
 ## [0.2.4] - 2026-08-02
 
 ### Added

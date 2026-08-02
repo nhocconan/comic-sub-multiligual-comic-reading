@@ -8,7 +8,7 @@ const desktopPackage = JSON.parse(fs.readFileSync(path.join(root, 'desktop', 'pa
 const workflow = fs.readFileSync(path.join(root, '.github', 'workflows', 'release-desktop.yml'), 'utf8')
 
 test('desktop release assets have stable latest-download names', () => {
-  assert.equal(desktopPackage.version, '0.2.4')
+  assert.equal(desktopPackage.version, '0.2.5')
   assert.equal(desktopPackage.build.mac.artifactName, 'Manga-Sub-mac-${arch}.${ext}')
   assert.equal(desktopPackage.build.win.artifactName, 'Manga-Sub-win-${arch}.${ext}')
   assert.deepEqual(desktopPackage.build.mac.target, [
@@ -17,9 +17,12 @@ test('desktop release assets have stable latest-download names', () => {
   ])
 })
 
-test('Windows release refuses unsigned publication and uploads to the tag release', () => {
-  assert.match(workflow, /WINDOWS_CSC_LINK/)
-  assert.match(workflow, /WINDOWS_CSC_KEY_PASSWORD/)
-  assert.match(workflow, /Refusing to publish an unsigned Windows installer/)
-  assert.match(workflow, /gh release upload \"\$RELEASE_TAG\" desktop\/dist\/\* --clobber/)
+test('Windows release verifies the unsigned installer and uploads stable assets', () => {
+  assert.match(workflow, /CSC_IDENTITY_AUTO_DISCOVERY: 'false'/)
+  assert.match(workflow, /Get-AuthenticodeSignature/)
+  assert.match(workflow, /Status -ne 'NotSigned'/)
+  assert.match(workflow, /Manga-Sub-win-x64\.exe/)
+  assert.match(workflow, /Manga-Sub-win-x64\.exe\.sha256/)
+  assert.match(workflow, /gh release upload \"\$RELEASE_TAG\"/)
+  assert.doesNotMatch(workflow, /WINDOWS_CSC_LINK|SIGNPATH_API_TOKEN/)
 })

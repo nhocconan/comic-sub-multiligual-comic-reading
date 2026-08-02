@@ -33,6 +33,7 @@ public source repository.
 The same build is reproducible on GitHub Actions or a local Windows machine:
 
 ```powershell
+py -m pip install Pillow
 npm ci --prefix desktop
 npm run dist:win --prefix desktop
 ```
