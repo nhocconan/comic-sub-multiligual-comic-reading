@@ -502,6 +502,19 @@ footer p {
   font-size: 11px;
 }
 
+.copyright-link {
+  color: var(--muted);
+  font-size: 10px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.copyright-link:hover,
+.copyright-link:focus-visible {
+  color: var(--accent-strong);
+  text-decoration: underline;
+}
+
 .quiet-danger {
   color: var(--danger);
 }

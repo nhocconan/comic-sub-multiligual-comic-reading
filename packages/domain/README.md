@@ -1,5 +1,7 @@
 # Domain package
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 Pure Node.js domain logic shared by desktop, mobile, and the broker.
 
 - A job stores separate immutable `requestedExecution` and `resolvedExecution`

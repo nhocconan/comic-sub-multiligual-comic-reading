@@ -2,6 +2,8 @@
 
 # Manga Sub Reader — Product and Architecture Plan
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 Status: final decision artifact and Phase 0 execution contract
 Date: 2026-07-30
 Decision owner: product owner

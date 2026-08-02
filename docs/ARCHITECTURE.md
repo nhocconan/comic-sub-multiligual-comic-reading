@@ -1,5 +1,7 @@
 # Architecture decision
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 ## Decision
 
 Use one shared click-activated WebExtension codebase packaged as Manifest V3 for

@@ -1,5 +1,7 @@
 # Verification record
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 Date: 2026-07-29  
 Platform: Apple M1 Pro, macOS arm64  
 Extension: Manga Sub 0.1.0

@@ -1,5 +1,7 @@
 # Local translation broker
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 Runnable Node.js broker for desktop, iOS, and Android embedded readers. It has no
 runtime dependencies outside Node 22+.
 

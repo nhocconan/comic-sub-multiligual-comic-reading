@@ -1,6 +1,6 @@
 {
   "name": "manga-sub-desktop",
-  "version": "0.1.0",
+  "version": "0.2.4",
   "private": true,
   "author": "Manga Sub",
   "description": "Manga Sub embedded comic reader and translation app",
@@ -12,7 +12,9 @@
     "start": "npm run build:ocr && electron .",
     "test": "node --test test/*.test.cjs",
     "build": "npm run build:icons && npm run build:ocr && electron-builder --dir",
-    "dist": "npm run build:icons && npm run build:ocr && electron-builder"
+    "dist": "npm run build:icons && npm run build:ocr && electron-builder",
+    "dist:mac": "npm run build:icons && npm run build:ocr && electron-builder --mac --universal",
+    "dist:win": "npm run build:icons && npm run build:ocr && electron-builder --win nsis --x64"
   },
   "build": {
     "appId": "com.comicsub.reader",
@@ -26,20 +28,26 @@
       "build/icon.png",
       "package.json"
     ],
-    "extraResources": [
-      {
-        "from": "bin",
-        "to": "bin",
-        "filter": ["manga-sub-ocr", "manga-sub-credentials", "manga-sub-translation"]
-      }
-    ],
     "mac": {
       "category": "public.app-category.entertainment",
-      "icon": "build/icon.icns"
+      "icon": "build/icon.icns",
+      "artifactName": "Manga-Sub-mac-${arch}.${ext}",
+      "target": [
+        { "target": "dmg", "arch": ["universal"] },
+        { "target": "zip", "arch": ["universal"] }
+      ],
+      "extraResources": [
+        {
+          "from": "bin",
+          "to": "bin",
+          "filter": ["manga-sub-ocr", "manga-sub-credentials", "manga-sub-translation"]
+        }
+      ]
     },
     "win": {
       "target": "nsis",
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "artifactName": "Manga-Sub-win-${arch}.${ext}"
     },
     "linux": {
       "icon": "build/icon.png"

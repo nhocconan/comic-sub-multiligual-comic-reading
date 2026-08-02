@@ -1,6 +1,6 @@
 {
   "name": "manga-sub-translator",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "private": true,
   "description": "Cross-platform embedded comic reader with local OCR and configurable translation routes.",
   "type": "module",

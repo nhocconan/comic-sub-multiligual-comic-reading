@@ -1170,6 +1170,10 @@ function createWindow() {
       nodeIntegration: false,
     },
   })
+  windowRef.webContents.setWindowOpenHandler(({ url: requested }) => {
+    if (isSafeExternalUrl(requested)) shell.openExternal(requested)
+    return { action: 'deny' }
+  })
   windowRef.loadFile(path.join(__dirname, 'app', 'index.html'))
   windowRef.on('closed', () => { destroyReader(); windowRef = null })
   createReader()

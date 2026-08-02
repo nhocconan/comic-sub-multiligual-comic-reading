@@ -1,0 +1,68 @@
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: Windows signed installer
+    runs-on: windows-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+      WIN_CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Check out release source
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Require the Windows signing certificate
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_LINK)) {
+            throw 'WINDOWS_CSC_LINK is not configured. Refusing to publish an unsigned Windows installer.'
+          }
+          if ([string]::IsNullOrWhiteSpace($env:WIN_CSC_KEY_PASSWORD)) {
+            throw 'WINDOWS_CSC_KEY_PASSWORD is not configured. Refusing to publish an unsigned Windows installer.'
+          }
+
+      - name: Install desktop dependencies
+        run: npm ci --prefix desktop
+
+      - name: Build signed Windows installer
+        run: npm run dist:win --prefix desktop
+
+      - name: Ensure the GitHub release exists
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --title "Manga Sub $RELEASE_TAG" --generate-notes
+          fi
+
+      - name: Upload signed Windows assets
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: gh release upload "$RELEASE_TAG" desktop/dist/* --clobber

@@ -4,6 +4,8 @@ An Electron prototype for the embedded comic reader described in
 `docs/EMBEDDED_READER_PRODUCT_PLAN.md`. It intentionally lives independently of
 the extension and mobile projects.
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 ## Run
 
 ```bash
@@ -22,8 +24,10 @@ from other browsers.
 ```bash
 npm test       # domain and migration checks
 npm run dev    # Electron development app
-npm run build  # unpacked macOS/Windows Electron artifact for the host platform
-npm run dist   # installable artifact
+  npm run build      # unpacked artifact for the host platform
+  npm run dist       # installable artifact for the host platform
+  npm run dist:mac   # signed universal macOS DMG/ZIP on the maintainer's Mac
+  npm run dist:win   # signed Windows x64 NSIS installer in GitHub Actions
 ```
 
 ## Prototype boundary

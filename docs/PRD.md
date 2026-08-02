@@ -1,5 +1,7 @@
 # PRD — Manga Sub
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 Status: implementation baseline  
 Date: 2026-07-29
 

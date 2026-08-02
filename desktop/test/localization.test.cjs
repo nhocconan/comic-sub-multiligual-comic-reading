@@ -46,3 +46,11 @@ test('desktop exposes a bounded translated chapter cache setting', () => {
   assert.match(renderer, /translationCacheLimit: Number\(event\.target\.value\)/)
   assert.match(renderer, /Storage is capped at 2 MiB/)
 })
+
+test('desktop keeps Library heading readable and attribution outside the reader', () => {
+  assert.match(index, /class="library-workspace panel-workspace"|id="library-workspace" class="panel-workspace"/)
+  assert.match(styles, /\.library-workspace \.panel-heading h1[\s\S]*white-space: nowrap/)
+  assert.match(styles, /@media \(max-width: 720px\)[\s\S]*\.library-workspace \.panel-heading h1[\s\S]*white-space: normal/)
+  assert.match(index, /Copyright © 2026 <a href="https:\/\/x\.com\/nhocconan"/)
+  assert.match(index, /class="side-footer"[\s\S]*class="copyright-link"/)
+})

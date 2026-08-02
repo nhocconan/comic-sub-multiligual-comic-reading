@@ -1012,6 +1012,16 @@ class MainActivity : ComponentActivity() {
         layout.addView(byoModel)
         layout.addView(refreshModels)
         layout.addView(clearByoKey)
+        layout.addView(TextView(this).apply {
+            text = "Copyright © 2026 nhocconan"
+            textSize = 12f
+            setTextColor(textMuted)
+            setPadding(0, dp(18), 0, dp(18))
+            setOnClickListener {
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://x.com/nhocconan")))
+            }
+            contentDescription = t("Copyright by nhocconan", "Bản quyền thuộc về nhocconan")
+        })
         val scroll = ScrollView(this).apply { addView(layout) }
         AlertDialog.Builder(this)
             .setTitle(t("Translation settings", "Cài đặt dịch"))

@@ -1,5 +1,8 @@
 # Manga Sub for iPhone and iPad
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan). iOS testing is invitation-only;
+contact the author to be added to TestFlight.
+
 The Apple project is at:
 
 ```text

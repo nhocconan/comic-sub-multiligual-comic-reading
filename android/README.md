@@ -5,6 +5,9 @@ language, current/snapshot translation, immutable broker jobs, history/resume,
 private-session cleanup, research consent, and an optional ML Kit on-device text
 translation stage.
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan). Android testing access is
+invitation-only; contact the author to be added to the testing track.
+
 ## Build
 
 ```bash

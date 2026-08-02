@@ -1,5 +1,7 @@
 # Remote Koharu
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 Use this when Manga Sub should share one Koharu instance across machines.
 
 ## Security model

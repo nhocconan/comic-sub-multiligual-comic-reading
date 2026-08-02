@@ -1,5 +1,7 @@
 # Research and architecture debate
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 Date: 2026-07-29
 
 ## User need distilled

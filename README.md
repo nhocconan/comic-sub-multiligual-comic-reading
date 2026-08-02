@@ -1,215 +1,152 @@
 # Manga Sub
 
-Manga Sub is a cross-platform comic browser with translation built into the
-reader. Paste a chapter URL into the macOS, iOS, or Android app, browse normally,
-then translate the visible page or every discovered page. The original site
-remains inside a hardened web view; translated regions are attached as
-accessible overlays.
+Manga Sub is a translation-native comic reader. It keeps the original chapter
+inside an embedded browser, translates the pages you choose, and puts the
+translated text back over the artwork without downloading or republishing the
+chapter.
 
-The browser extension remains available as a compatibility surface. The native
-apps are the primary product: they own server/model settings, target-language
-selection, private sessions, reading history/resume, job receipts, and automatic
-per-series terminology continuity.
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
 
-Baozimh is one verification fixture, not a hard-coded supported-site list.
+## Download the latest desktop build
 
-This repository is a functional engineering baseline, not an unsupported “SOTA”
-claim. The quality benchmark required for that claim is in
-[`docs/PRD.md`](docs/PRD.md).
+- [macOS universal DMG](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest/download/Manga-Sub-mac-universal.dmg)
+- [Windows x64 installer](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest/download/Manga-Sub-win-x64.exe)
+- [All releases and checksums](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest)
 
-## Design
+The Windows installer is built in GitHub Actions and is published only when the
+repository's Windows signing certificate secrets are present. The macOS build
+is built and signed with the maintainer's local Developer ID certificate before
+its release asset is uploaded.
 
-- Generic runtime discovery covers normal, lazy-loaded, and AMP-style images.
-- Work begins only after a click on the extension for the current tab.
-- The fast reading path uses comic text detection, PaddleOCR-VL, and an LLM.
-- The visible page is processed first, followed by the pages ahead of it.
-- Detection, Chinese OCR, and translation run locally through
-  [Koharu](https://github.com/mayocream/koharu).
-- Provider API keys remain in Koharu's OS credential store.
-- Region results are cached by source-byte hash and quality settings.
+Android and iOS builds are not public downloads yet. Contact
+[nhocconan](https://x.com/nhocconan) to be added to the Android or TestFlight
+iOS testing invitation.
 
-## Apps
+## What you get
 
-- **macOS:** packaged Electron reader under `desktop/`, with embedded browser,
-  current/all translation, settings, history, private sessions, and an OS
-  credential-store token.
-- **iOS/iPadOS:** native `WKWebView` reader under `apple/`. It defaults to
-  `https://comic-be.dep.app`, discovers a Mac broker over Bonjour, and can use
-  Apple Translation for the text stage when a language pack is installed.
-- **Android:** native hardened `WebView` reader under `android/`. It defaults to
-  the production broker and can use on-device ML Kit translation.
-- **Broker:** immutable snapshot/job service under `services/broker/`. It pins
-  Gemini 3.6 Flash by default, verifies the actual model receipt, and keeps
-  Koharu's process-global model setting behind a serialized server boundary.
+### Embedded reader
 
-Public terminology research is opt-in per series. After the first successful
-page, Manga Sub keeps local continuity and can research public names via
-Wikidata, target-language Wikipedia, and AniList. A researched character name
-becomes active only after it literally appears in local OCR; other results stay
-quarantined.
+- Open any HTTP(S) comic chapter in the desktop reader.
+- Translate the current viewport or all discovered comic images.
+- Keep reading on the original site while Manga Sub processes the queue.
+- Use the licensed sample chapter to try the interface without sending data.
 
-## Install
+### Three explicit translation routes
 
-### 1. Start everything
+- **On this Mac:** local OCR and Apple Translation; comic images stay on the
+  device.
+- **Manga Sub Cloud:** local OCR, then recognized text and coordinates go to the
+  managed broker over HTTPS.
+- **Your API key:** local OCR and a provider you configure. Keys stay in the
+  operating system credential store.
 
-Copy `.env.example` to `.env`, add a Gemini or DeepSeek key, and leave
-`RUNTIME_MODE=auto` unless you want to force a backend. Then double-click:
+The app shows the route and resolved model in a job receipt. It never silently
+switches from a route you approved to cloud processing.
 
-```text
-start.command
+### Reading continuity
+
+- Library history stores a local resume anchor so you can continue a chapter.
+- Private sessions clear cookies, cache, and progress when you leave.
+- Local Continuity Memory keeps approved names and glossary terms consistent.
+- Translation text and OCR positions can be cached; comic images are not saved.
+
+### Companion surfaces
+
+- Chrome/Chromium extension for the original compatibility workflow.
+- iOS/iPadOS Safari Web Extension using the same extension sources.
+- Native Android reader with ML Kit OCR and optional on-device translation.
+- Local Node.js broker for desktop, iOS, and Android clients.
+
+## Install and run locally
+
+Requirements: Node.js 22+, a configured Koharu instance for real translation,
+and Xcode/Android Studio only when building the mobile targets.
+
+```bash
+git clone https://github.com/nhocconan/comic-sub-multiligual-comic-reading.git
+cd comic-sub-multiligual-comic-reading
+npm install
 ```
 
-`auto` selects native Koharu on Apple Silicon for Metal acceleration and Docker
-Compose elsewhere. `native` and `docker` force either mode. The runtime exposes:
-
-```text
-http://127.0.0.1:4000/api/v1
-http://127.0.0.1:4100
-```
-
-The first clean-render run downloads detector, OCR, segmentation, font,
-inpainting, and renderer assets. Docker uses the official Koharu 0.61.2 image
-pinned by digest and persistent model/credential volumes. That image is
-`linux/amd64` and was verified to exit with illegal-instruction status 132 under
-Apple Silicon emulation, so the start script rejects Docker mode on ARM instead
-of entering a restart loop. Use native mode with Metal on M-series Macs.
-
-`start.command` starts Koharu and the real Broker adapter. It refuses to report
-ready if port 4100 contains the explicit test adapter. Double-click
-`stop.command` to stop both. Docker model and credential volumes are preserved.
-
-Security note: Koharu exposes a permissive unauthenticated loopback API. The
-Compose port is bound to `127.0.0.1` only. Stop it when not translating.
-
-### 2. Run an app
+Start the local services with `start.command` or run the pieces separately:
 
 ```bash
 npm start --prefix desktop
-cd android && ./gradlew assembleDebug
+npm start --prefix services/broker
 ```
 
-Open `apple/Manga Sub/Manga Sub.xcodeproj` for iOS. Signed internal builds use
-the existing project team and bundle identifier.
+The desktop app defaults to a local broker at `http://127.0.0.1:4100`. For a
+remote deployment, use an HTTPS endpoint and an optional Bearer token. See
+[`docs/REMOTE_SERVER.md`](docs/REMOTE_SERVER.md).
 
-### 3. Load the optional extension
+Open a chapter URL, choose a translation route, then press **Translate current
+view** or **Translate all loaded images**. The app keeps the original page
+visible while translated regions are attached to the matching image.
 
-#### Chrome on desktop
-
-1. Open `chrome://extensions`.
-2. Enable **Developer mode**.
-3. Choose **Load unpacked**.
-4. Select
-   `/Users/Shared/TienLe-Data/Workspace/AI-Dev/Online-comic-translation/extension`.
-5. Pin **Manga Sub**.
-
-#### Safari on iPhone and iPad
-
-Open the Xcode project under `apple/Manga Sub/`. The containing iOS app and
-Safari Web Extension share the exact desktop WebExtension sources; only the
-native wrapper is Apple-specific. See
-[`docs/IOS_SAFARI.md`](docs/IOS_SAFARI.md) for simulator, device signing,
-TestFlight, enabling, and permission steps.
-
-### 4. Read
-
-1. Paste any HTTP(S) chapter URL into Manga Sub.
-2. Choose a target language and processing route.
-3. Press **Dịch phần đang đọc** or **Dịch tất cả**.
-4. Keep scrolling; history stores a resilient resume anchor outside Private
-   Session.
-5. Inspect the job receipt to verify route, provider, and resolved model.
-
-No chapter download/export is offered. Image bytes are fetched only for local
-processing of registered candidates in the activated tab.
-
-## Settings
-
-- **Koharu API:** local HTTP(S), or a remote HTTPS endpoint.
-- **Auth key:** optional Bearer token for a remote reverse proxy. Provider API
-  keys remain stored only on the Koharu host.
-- **Target:** Vietnamese by default.
-- **Provider/model:** read dynamically from the running Koharu catalog; the
-  selected provider must already have its API key configured in Koharu.
-- **Look-ahead:** number of likely comic pages below the viewport to queue.
-- **Glossary:** names and terminology to preserve consistently.
-
-Changing a quality-affecting setting creates a new cache key.
-
-### Remote Koharu
-
-The extension accepts a remote endpoint such as:
-
-```text
-https://comic-be.dep.app/api/v1
-```
-
-Native apps use the Broker root instead:
-
-```text
-https://comic-be.dep.app
-```
-
-The gateway routes `/v1/*` to Manga Sub Broker and keeps `/api/v1/*` for the
-legacy extension/Koharu API.
-
-Enter an optional auth key in the popup. Manga Sub sends it as:
-
-```text
-Authorization: Bearer YOUR_KEY
-```
-
-Remote plain HTTP is rejected. Keep Koharu itself bound to `127.0.0.1` on the
-server and expose it only through a TLS reverse proxy. See
-[`docs/REMOTE_SERVER.md`](docs/REMOTE_SERVER.md) for a Caddy example and key
-generation.
-
-### Choosing a translation provider
-
-The cloud provider receives OCR text, not the comic image.
-
-- **Gemini:** best zero-cost starting point. Google offers a free API tier for
-  selected models, subject to account, model, region, and changing rate limits.
-  Free-tier content may be used to improve Google products. Start with Flash;
-  try Flash Lite when cost and quota matter most.
-- **DeepSeek:** strongest budget paid option in the current Koharu catalog.
-  Start with **DeepSeek V4 Flash** for ordinary dialogue translation; use V4 Pro
-  only when a quality comparison justifies its extra cost. Manga Sub does not
-  claim that the DeepSeek API is free.
-- **OpenAI / Claude:** retained as quality bake-off choices, not required for
-  the default reading path.
-
-Pricing and quota change frequently; check the
-[official Gemini pricing](https://ai.google.dev/gemini-api/docs/pricing),
-[Gemini rate-limit page](https://ai.google.dev/gemini-api/docs/rate-limits), and
-[official DeepSeek pricing](https://api-docs.deepseek.com/quick_start/pricing)
-before a long reading session.
-
-## Development
+## Build the apps
 
 ```bash
-cd /Users/Shared/TienLe-Data/Workspace/AI-Dev/Online-comic-translation
-npm install
+# Full JavaScript, protocol, broker, and desktop test suites
 npm run verify
+
+# Installable desktop package for the current host
+npm run dist:mac --prefix desktop   # macOS, signed by the local keychain
+npm run dist:win --prefix desktop   # Windows, signed in GitHub Actions
+
+# Android debug build
+(cd android && ./gradlew test assembleDebug)
+
+# iOS Simulator build
+xcodebuild \
+  -project "apple/Manga Sub/Manga Sub.xcodeproj" \
+  -scheme "Manga Sub" \
+  -configuration Debug \
+  -sdk iphonesimulator \
+  -destination "platform=iOS Simulator,name=iPhone 17 Pro,OS=26.4" \
+  CODE_SIGNING_ALLOWED=NO build
 ```
 
-The test suite uses a synthetic comic reader and a local mock Koharu API. It does
-not consume a provider key. A real quality run additionally requires configured
-Koharu models and a provider.
+The Windows release workflow is
+[`.github/workflows/release-desktop.yml`](.github/workflows/release-desktop.yml).
+Set `WINDOWS_CSC_LINK` to a base64-encoded `.p12` certificate and
+`WINDOWS_CSC_KEY_PASSWORD` in GitHub Actions secrets. The workflow refuses to
+publish an unsigned installer.
 
-## Privacy and copyright
+## Project map
+
+| Surface | Location | Purpose |
+| --- | --- | --- |
+| Desktop reader | `desktop/` | Electron embedded reader and installable macOS/Windows builds |
+| Browser extension | `extension/` | Click-activated Chrome/Chromium translation workflow |
+| Apple app | `apple/` | iOS/iPadOS container and Safari Web Extension |
+| Android app | `android/` | Hardened WebView reader with local OCR |
+| Broker | `services/broker/` | Immutable jobs, receipts, and Koharu adapter |
+| Shared logic | `packages/` | Domain and protocol contracts |
+
+## Privacy, copyright, and scope
 
 Manga Sub is designed for personal, ephemeral reading overlays. It does not
 crawl links, download chapters, export translated pages, or republish comics.
-Detection and OCR run on the selected Koharu host. With a remote Koharu, comic
-page images are uploaded to that server over HTTPS. When a cloud translator is
-selected, Koharu also sends OCR text to that provider.
+Detection and OCR run on the selected Koharu host. With a remote host, comic
+page images are uploaded there over HTTPS. A cloud provider receives OCR text,
+not the comic image. Check the source site's terms and copyright rules before
+using any translation route.
 
-## Research
+The included sample is licensed for interface testing only. It is not a grant
+to copy or redistribute a chapter.
 
-- [Koharu](https://github.com/mayocream/koharu)
-- [comic-translate](https://github.com/ogkalu2/comic-translate)
-- [manga-image-translator](https://github.com/zyddnys/manga-image-translator)
-- [Context-Informed Machine Translation of Manga (COLING 2025)](https://aclanthology.org/2025.coling-main.232/)
-- [Chrome optional permissions](https://developer.chrome.com/docs/extensions/develop/concepts/declare-permissions)
-- [Chrome cross-origin requests](https://developer.chrome.com/docs/extensions/develop/concepts/network-requests)
-- [Playwright extension testing](https://playwright.dev/docs/chrome-extensions)
+## Documentation
+
+- [Product and architecture plan](docs/EMBEDDED_READER_PRODUCT_PLAN.md)
+- [Architecture decisions](docs/ARCHITECTURE.md)
+- [PRD and release gates](docs/PRD.md)
+- [Remote server guide](docs/REMOTE_SERVER.md)
+- [iOS/Safari build and TestFlight guide](docs/IOS_SAFARI.md)
+- [Verification record](docs/VERIFICATION.md)
+- [Research notes](docs/RESEARCH.md)
+
+## Credits
+
+Manga Sub is copyrighted by [nhocconan](https://x.com/nhocconan). The project
+uses Koharu, Playwright, ML Kit, Electron, and the other open-source components
+listed in the linked documentation. Their licenses remain with their authors.

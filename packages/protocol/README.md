@@ -1,5 +1,7 @@
 # Manga Sub shared protocol
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 Runtime-validated, dependency-free messages shared by the embedded reader
 clients and the local translation broker.
 

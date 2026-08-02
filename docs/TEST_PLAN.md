@@ -1,5 +1,7 @@
 # Verification plan
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 ## Static and unit
 
 - Manifest V3, no static site matches, no `tabs`, no permanent remote host access.
