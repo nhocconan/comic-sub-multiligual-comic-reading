@@ -50,7 +50,7 @@ jobs:
         run: npm ci --prefix desktop
 
       - name: Build Windows installer
-        run: npm run dist:win --prefix desktop
+        run: npm run dist:win --prefix desktop -- --publish never
 
       - name: Verify and hash the unsigned installer
         shell: pwsh

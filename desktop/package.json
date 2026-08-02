@@ -12,9 +12,9 @@
     "start": "npm run build:ocr && electron .",
     "test": "node --test test/*.test.cjs",
     "build": "npm run build:icons && npm run build:ocr && electron-builder --dir",
-    "dist": "npm run build:icons && npm run build:ocr && electron-builder",
-    "dist:mac": "npm run build:icons && npm run build:ocr && electron-builder --mac --universal",
-    "dist:win": "npm run build:icons && npm run build:ocr && electron-builder --win nsis --x64"
+    "dist": "npm run build:icons && npm run build:ocr && electron-builder --publish never",
+    "dist:mac": "npm run build:icons && npm run build:ocr && electron-builder --mac --universal --publish never",
+    "dist:win": "npm run build:icons && npm run build:ocr && electron-builder --win nsis --x64 --publish never"
   },
   "build": {
     "appId": "com.comicsub.reader",

@@ -23,6 +23,7 @@ test('Windows release verifies the unsigned installer and uploads stable assets'
   assert.match(workflow, /Status -ne 'NotSigned'/)
   assert.match(workflow, /Manga-Sub-win-x64\.exe/)
   assert.match(workflow, /Manga-Sub-win-x64\.exe\.sha256/)
+  assert.match(workflow, /--publish never/)
   assert.match(workflow, /gh release upload \"\$RELEASE_TAG\"/)
   assert.doesNotMatch(workflow, /WINDOWS_CSC_LINK|SIGNPATH_API_TOKEN/)
 })
