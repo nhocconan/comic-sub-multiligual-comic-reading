@@ -80,7 +80,7 @@ it with an opaque or translucent card fails the basic reading goal.
 - CSS-background and canvas/WebGL comic readers whose source pixels cannot be
   acquired safely.
 - Automatically granting access to every website or image origin.
-- Claiming translation-quality leadership without a Chinese-to-Vietnamese
+- Publishing a translation-quality ranking without a Chinese-to-Vietnamese
   benchmark.
 
 ## Generic image eligibility
@@ -131,10 +131,10 @@ sites without weakening the default permission boundary.
 
 ### Quality benchmark
 
-Before using “SOTA” as a release claim, evaluate at least 30 annotated
-Chinese-comic pages, expanding to 100 for public release. Include normal dialogue,
-narration, small text, vertical text, stylized SFX, colored bubbles, and text over
-artwork.
+Before publishing a measured translation-quality claim, evaluate at least 30
+annotated Chinese-comic pages, expanding to 100 for public release. Include
+normal dialogue, narration, small text, vertical text, stylized SFX, colored
+bubbles, and text over artwork.
 
 Score:
 

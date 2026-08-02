@@ -2,18 +2,6 @@
 
 Copyright © 2026 [nhocconan](https://x.com/nhocconan)
 
-## Workspace correction
-
-The initial Codex workspace was incorrectly set to
-`/Users/Shared/TienLe-Data/Workspace/interactive-training-courses`.
-All work in this package must continue from:
-
-`/Users/Shared/TienLe-Data/Workspace/AI-Dev/Online-comic-translation`
-
-No LMS application files were modified. The only addition to the original
-workspace was the untracked `manga-web-translator/` package that is being moved
-to the correct project root.
-
 ## Product direction
 
 Build a website-agnostic Chromium extension for reading comics online:
@@ -39,17 +27,17 @@ and an explicit user action/permission model.
 ## Research completed
 
 - MangaLens is convenient but closed and credit/subscription based.
-- `ogkalu2/comic-translate` has a strong comic-specific detection/OCR pipeline,
+- `ogkalu2/comic-translate` has a comic-specific detection/OCR pipeline,
   but its browser extension is a separate paid product.
 - `zyddnys/manga-image-translator` is broad and capable but operationally heavy.
-- Koharu is the strongest current local-first companion foundation found:
+- Koharu is the local-first companion selected for this project because it has:
   comic detectors, PaddleOCR-VL, translation, inpainting, rendering, Metal
   support, and a local HTTP API.
 - Current manga-MT research supports translating with page-level text and image
   context rather than isolated text bubbles.
-- No independent Chinese-to-Vietnamese benchmark proves any candidate is
-  universally state of the art. A benchmark corpus and human quality rubric are
-  required before making that claim.
+- No independent Chinese-to-Vietnamese benchmark ranks the candidates. A
+  benchmark corpus and human quality rubric are required before publishing a
+  quality comparison.
 
 ## Implementation status
 
@@ -63,12 +51,12 @@ Completed:
   Vietnamese typesetting;
 - one-click `start.command` / `stop.command` with native Metal and pinned Docker
   Compose runtime modes;
-- dynamic Koharu provider/model catalog with first-class Gemini and DeepSeek
+- dynamic Koharu provider/model catalog with Gemini and DeepSeek options
   budget guidance;
 - Node, manifest/security, Playwright extension, and live Baozimh smoke tests;
 - a real Koharu 0.61.2 detector/OCR run on one Baozimh page.
 
-Still required before a linguistic “SOTA” claim:
+Still required before publishing a linguistic quality comparison:
 
 - a 30-page Chinese-to-Vietnamese golden set;
 - blind human comparison of at least three provider/model choices;
@@ -82,7 +70,7 @@ Still required before a linguistic “SOTA” claim:
 1. Configure Gemini and DeepSeek keys in Koharu without copying them into the
    extension.
 2. Build and annotate the golden set.
-3. Benchmark Flash/Lite, DeepSeek V4 Flash/Pro, and one premium comparator on
+3. Benchmark Flash/Lite, DeepSeek V4 Flash/Pro, and one additional paid model on
    identical OCR input.
 4. Add optional image context only if the text-only benchmark proves it is
    needed and the reader explicitly accepts the privacy tradeoff.

@@ -27,7 +27,7 @@ npm run dev    # Electron development app
   npm run build      # unpacked artifact for the host platform
   npm run dist       # installable artifact for the host platform
   npm run dist:mac   # signed universal macOS DMG/ZIP on the maintainer's Mac
-  npm run dist:win   # signed Windows x64 NSIS installer in GitHub Actions
+  npm run dist:win   # unsigned Windows x64 NSIS installer
 ```
 
 ## Prototype boundary
@@ -41,5 +41,6 @@ in Settings (the local default is `http://127.0.0.1:4100`). Tokens use Electron
 `safeStorage` when available.
 
 The included `file:` chapter is explicitly **sample mode**: it never uploads
-assets and cannot pretend to be a translation result. Start the broker (and
-the configured Manga Sub Cloud or local route before translating a real HTTP(S) chapter.
+assets and cannot pretend to be a translation result. Start the broker and the
+configured Manga Sub Cloud or local route before translating a real HTTP(S)
+chapter.

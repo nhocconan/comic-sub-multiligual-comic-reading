@@ -1,6 +1,6 @@
 # Manga Sub Reader for Android
 
-Native Android embedded reader with a hardened `WebView`, per-device target
+Native Android embedded reader with a sandboxed `WebView`, per-device target
 language, current/snapshot translation, immutable broker jobs, history/resume,
 private-session cleanup, research consent, and an optional ML Kit on-device text
 translation stage.

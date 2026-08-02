@@ -44,7 +44,7 @@ DOM unchanged.
   entire page images would leave the machine, while small/rotated text and exact
   spatial localization remain inconsistent.
 - **Userscript:** weak lifecycle, permissions, and paid-call protection.
-- **Full desktop fork:** strong processing, wrong reading surface, and a much
+- **Full desktop fork:** full processing, wrong reading surface, and a much
   larger maintenance burden.
 - **Replacing `<img>` sources:** still rejected; the rendered bitmap is an
   independent layer so source reveal and removal remain lossless.

@@ -1,5 +1,3 @@
-<!-- /autoplan restore point: /Users/tienle/.gstack/projects/nhocconan-comic-sub-multiligual-comic-reading/autoplan-restores/main-20260730-085144.md -->
-
 # Manga Sub Reader — Product and Architecture Plan
 
 Copyright © 2026 [nhocconan](https://x.com/nhocconan).
@@ -26,9 +24,9 @@ a generic browser with a translation button.
   means one explicit candidate snapshot from the loaded document, never
   automatic crawling or silently adding later lazy-loaded images.
 - History and exact resume are core product features, not later analytics.
-- The durable advantage is private compute portability, exact reading memory,
-  series terminology intelligence, reversible rendering, and compatibility
-  recovery. An embedded browser alone is already table stakes.
+- The design focuses on private compute portability, exact reading memory,
+  series terminology, reversible rendering, and compatibility recovery. An
+  embedded browser alone is already common, so these are the areas to measure.
 
 ## Premise corrections
 
@@ -39,7 +37,8 @@ a generic browser with a translation button.
 3. “Translate all” must not become a crawler, downloader, or republisher.
 4. Local translation on Apple means the text-translation stage can run on the
    device when the language pair is installed and supported. It does not prove
-   that comic OCR, cleanup, and rendering are all local or high quality.
+   that comic OCR, cleanup, and rendering are all local or meet a measured
+   quality target.
 5. A user-authored glossary cannot be an onboarding requirement. The app must
    bootstrap series terminology automatically.
 
@@ -49,13 +48,13 @@ Paste a comic URL, read normally, and tap Translate. Manga Sub remembers the
 series, the exact place, the chosen language, the privacy path, and the names
 used in previous chapters.
 
-The 30-second 10-star moment is:
+The target first-use experience is:
 
 > Share or paste a chapter, get the first translated viewport in under ten
 > seconds on the target route, then reopen at the exact panel with the same
 > names and translation style.
 
-## Initial ICP and quality corridor
+## Initial audience and evidence scope
 
 V1 is for Vietnamese readers of Chinese-language long-scroll manhua/webcomics
 who currently open raw chapter URLs. This corridor matches the existing
@@ -76,12 +75,12 @@ building two readers at once.
 
 ## Market benchmark and unmet pain
 
-| Product | Current benchmark | Gap Manga Sub should beat |
+| Product | Current benchmark | Area Manga Sub should address |
 |---|---|---|
 | Mangra | Built-in browser, scroll/whole-chapter translation, background resume/retry, edit bubbles, history/bookmarks/tabs, offline/import/Komga | Exact cross-device resume, clearer cost/data-path receipt, private paired compute, no reader ads |
 | Madomi | Browser/mobile reader plus archive/Komga support | Focused comic reading instead of unrelated browser AI feature sprawl |
 | EasyComix | Whole-chapter flow, fast/offline on-device path, cloud policy says recognized text rather than images; iOS only and Android planned | Embedded reader continuity, exact history/resume, private server pairing, transparent mixed-stage locality |
-| IchigoReader | Mobile comic translation | Store feedback reports long-webtoon stalls, flicker, OCR/Safari failures; beat with visible-first backpressure and original-always-readable recovery |
+| IchigoReader | Mobile comic translation | Store feedback reports long-webtoon stalls, flicker, OCR/Safari failures; address these with visible-first backpressure and original-always-readable recovery |
 | MangaTranslate | Tall-webtoon support, per-bubble edit, context, translation memory, terminology and style modes | Make these capabilities portable across reader, privacy routes, and devices |
 | Screen overlay translators | Work across apps and have broad Android reach | Eliminate black boxes, ads, flicker, and opaque latency with registered comic candidates and reversible rendering |
 
@@ -101,7 +100,7 @@ Reuse:
   selection in `extension/background.js`;
 - live provider tests, security/manifest tests, and a generic Playwright fixture.
 
-Correct before calling the product SOTA:
+Evidence gaps to close before release:
 
 - the Apple container is onboarding plus Safari extension, not an in-app reader;
 - Android/desktop apps and reading history do not exist;
@@ -185,7 +184,7 @@ reading section.
 - Privacy & Data Paths
 
 Provider/model pinning, custom server URL, credential references, and broker
-details live under `Advanced for power users`. A fresh reader never lands in a
+details live under `Advanced settings`. A fresh reader never lands in a
 Koharu, reverse-proxy, token, or model-ID screen.
 
 First real-chapter route sheet:
@@ -200,7 +199,7 @@ My computer
 Scan a QR code from a ready Manga Sub desktop on the same Wi-Fi.
 
 Manga Sub cloud
-Fastest trial. Exact image/OCR destinations are shown. Ten successful images
+Trial route. Exact image/OCR destinations are shown. Ten successful images
 free, no account or API key required.
 
 [ See exactly what each option shares ] [ Remember for this device ]
@@ -241,7 +240,7 @@ On the first translated chapter of a series:
    reputable fan references. Preserve source URLs and retrieval time.
 5. Normalize aliases and assign confidence:
    - verified: official source or agreement across independent sources;
-   - likely: one strong source plus OCR/context agreement;
+   - likely: one reliable source plus OCR/context agreement;
    - provisional: inferred from OCR or a single weak source.
 6. Apply verified and likely terms to the series glossary. Provisional terms do
    not silently become permanent.
@@ -378,7 +377,7 @@ overwrite them.
 
 ### Root-cause conclusion
 
-The strongest direct explanation for the six 3.5 calls is a legacy/persisted
+The most likely explanation for the six 3.5 calls is a legacy/persisted
 client selection driving the local Koharu instance. The current system cannot
 prove attribution after the fact because it has no per-job model telemetry.
 
@@ -502,8 +501,8 @@ The reader shows semantic state only, for example
 ```text
 This image
 Route: My computer + external AI
-Image: this device → Tien’s Mac
-OCR/layout: Tien’s Mac
+Image: this device → paired Mac
+OCR/layout: paired Mac
 Translated text: Google Gemini through your API key
 Translation model: Gemini 3.6 Flash
 Requested/resolved route: matched
@@ -901,7 +900,8 @@ block the desktop alpha.
 - 100-page Chinese/Japanese-to-Vietnamese golden set
 - blind human comparison of at least three translation routes
 - terminology-consistency and research-accuracy benchmarks
-- published performance, privacy, and resume gates before using “SOTA”
+- published performance, privacy, and resume gates before making a public
+  quality comparison
 
 External glossary research graduates from a narrow allowlisted V1 lookup to a
 broader cited service only after identity precision, spoiler safety, wrong-name

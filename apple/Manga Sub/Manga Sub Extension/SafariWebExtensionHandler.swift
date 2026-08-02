@@ -2,7 +2,6 @@
 //  SafariWebExtensionHandler.swift
 //  Manga Sub Extension
 //
-//  Created by Tien Le on 29/7/26.
 //
 
 import SafariServices

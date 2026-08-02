@@ -130,7 +130,8 @@ future real run does not need to fetch them again.
 - Real cloud-provider Chinese-to-Vietnamese output: no provider API key was
   available. The full visual pipeline was verified with deterministic local
   Vietnamese strings, not used as a linguistic-quality claim.
-- The 30-page blind translation-quality bake-off required for a “SOTA” claim.
+- The 30-page blind translation-quality bake-off required for a public quality
+  comparison.
 - Full-reload/same-origin automatic activation on every next chapter.
 - Native Chrome optional-permission denial prompt and a real companion-offline
   walkthrough. Mock failure/retry is covered.

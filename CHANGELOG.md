@@ -1,5 +1,7 @@
 # Changelog
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan).
+
 ## [0.2.5] - 2026-08-02
 
 ### Added

@@ -28,7 +28,7 @@ Copyright © 2026 [nhocconan](https://x.com/nhocconan)
   exclusion, pause, and status UI.
 - [x] Implement restrained popup settings, language, glossary, and provider/model
   selection.
-- [x] Promote Gemini and DeepSeek to first-class text-only translation options.
+- [x] Add Gemini and DeepSeek as text-only translation options.
 - [x] Populate provider/model choices from Koharu's live catalog, with offline
   budget presets and no API-key storage in the extension.
 

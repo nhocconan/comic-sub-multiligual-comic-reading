@@ -16,7 +16,7 @@ Date: 2026-07-29
 ## Candidate comparison
 
 Scores are engineering judgments for this product, not independent quality
-benchmarks. Five is strongest.
+benchmarks. Five means the option fits the criterion well.
 
 | Candidate | In-browser UX | Comic OCR/geometry | Local/privacy | Generic sites | Maintainable base |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -34,7 +34,7 @@ Chinese-to-Vietnamese benchmark required here.
 
 ### ogkalu2/comic-translate
 
-Strong comic-specialized desktop pipeline: joint comic text/bubble detection,
+Comic-specialized desktop pipeline: joint comic text/bubble detection,
 Chinese OCR, contextual translation, inpainting, and rendering. Its browser
 extension is a separate commercial product, while the open repository is a
 desktop application rather than a generic reading overlay.
@@ -47,24 +47,23 @@ needs.
 
 ### Koharu
 
-Best foundation found for a local companion: native Apple acceleration,
+Foundation selected for a local companion: native Apple acceleration,
 comic-specific detection, PaddleOCR-VL, provider management, and a structured
 scene graph exposed over HTTP. Crucially, Manga Sub can stop after detection,
 OCR, and translation and render its own reversible text regions.
 
 ### Direct multimodal provider
 
-Excellent installation simplicity, but it sends full copyrighted page images to
-a cloud service and asks a general model to perform small-text OCR and exact
-geometry. It is useful as an opt-in comparison mode, not the default quality and
-privacy path.
+Installation is simple, but it sends full copyrighted page images to a cloud
+service and asks a general model to perform small-text OCR and exact geometry.
+It is useful as an opt-in comparison mode, not the default privacy path.
 
 ## Architecture debate
 
 ### Position A — build the smallest overlay immediately
 
 Intercept images while scrolling, OCR them, translate all regions on a page, and
-draw translucent boxes. Do not spend the first release on inpainting or a perfect
+draw translucent boxes. Do not spend the first release on inpainting or a full
 renderer.
 
 This position wins for the initial reading experience. It minimizes ways to
@@ -73,7 +72,7 @@ damage artwork and makes failures obvious and reversible.
 ### Position B — use a full rendered translation pipeline
 
 Detection, OCR, contextual translation, inpainting, and typesetting produce a
-more polished comic page and are closer to the strongest desktop tools.
+rendered comic page and follow a full desktop translation pipeline.
 
 This remains a later optional mode. It costs more compute, introduces artwork
 mutation risk, and is unnecessary to prove the online-reading loop.
@@ -115,10 +114,10 @@ The detector and PaddleOCR-VL run through the local companion. The provider sees
 the resulting text, target language, and bounded glossary; it does not need
 vision capability. This materially changes the model choice:
 
-| Provider | Best role | Cost conclusion | Product treatment |
+| Provider | Role | Cost conclusion | Product treatment |
 | --- | --- | --- | --- |
-| Gemini | Zero-cost entry and fast translation | Official free tier exists for selected models; quota, availability, and region vary | First-class, with Flash and Flash Lite choices |
-| DeepSeek | Low-cost paid translation | Current V4 Flash token pricing is very low, but the API is not represented as free | First-class, V4 Flash before V4 Pro/reasoning |
+| Gemini | Free-tier entry and fast translation | Official free tier exists for selected models; quota, availability, and region vary | Included, with Flash and Flash Lite choices |
+| DeepSeek | Lower-cost paid translation | Current V4 Flash token pricing is low, but the API is not represented as free | Included, V4 Flash before V4 Pro/reasoning |
 | OpenAI | Quality comparison | Paid; exact cost depends on the chosen catalog model | Available for benchmark and preference |
 | Claude | Quality comparison | Paid; exact cost depends on the chosen catalog model | Available for benchmark and preference |
 
@@ -132,13 +131,13 @@ Privacy caveat: Google's official pricing page states that free-tier content may
 be used to improve its products, while paid-tier content is not. Readers who do
 not accept that tradeoff should use a paid tier or another provider.
 
-## What “state of the art” can honestly mean
+## How to describe quality claims
 
-The architecture combines current strong components, but “SOTA
-Chinese-to-Vietnamese comic translation” is a benchmark result, not a design
-adjective. Public release language must wait for the annotated corpus and model
-bake-off in the PRD. Until then, the defensible claim is “local-first,
-comic-specialized, context-aware, and non-destructive.”
+The architecture combines the components tested so far. A Chinese-to-Vietnamese
+translation quality comparison is a benchmark result, not a design adjective.
+Public release language should wait for the annotated corpus and model bake-off
+in the PRD. Until then, describe the design properties directly: local-first,
+comic-specialized, context-aware, and non-destructive.
 
 ## Primary references
 

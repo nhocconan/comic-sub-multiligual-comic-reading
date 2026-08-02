@@ -67,7 +67,7 @@ regions and source text are translated by at least three provider/model
 configurations. Reviewers score blind using the PRD rubric and record latency,
 cost, omissions, hallucinations, name consistency, and overflow.
 
-No model is called “best” until this bake-off is complete.
+Do not publish a model preference until this bake-off is complete.
 
 ## Completion record
 

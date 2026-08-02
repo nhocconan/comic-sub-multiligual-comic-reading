@@ -139,7 +139,7 @@ added without changing the source build.
 | Desktop reader | `desktop/` | Electron embedded reader and installable macOS/Windows builds |
 | Browser extension | `extension/` | Click-activated Chrome/Chromium translation workflow |
 | Apple app | `apple/` | iOS/iPadOS container and Safari Web Extension |
-| Android app | `android/` | Hardened WebView reader with local OCR |
+| Android app | `android/` | Sandboxed WebView reader with local OCR |
 | Broker | `services/broker/` | Immutable jobs, receipts, and Koharu adapter |
 | Shared logic | `packages/` | Domain and protocol contracts |
 
@@ -166,6 +166,7 @@ to copy or redistribute a chapter.
 - [iOS/Safari build and TestFlight guide](docs/IOS_SAFARI.md)
 - [Verification record](docs/VERIFICATION.md)
 - [Research notes](docs/RESEARCH.md)
+- [Desktop preview video](docs/VIDEO_PREVIEW.md)
 
 ## Credits
 
