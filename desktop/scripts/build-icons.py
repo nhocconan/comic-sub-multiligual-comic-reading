@@ -4,6 +4,7 @@
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from PIL import Image, ImageDraw
@@ -58,7 +59,8 @@ def main() -> None:
     if not SOURCE.exists():
         shutil.copy2(PNG, SOURCE)
     render_png()
-    render_icns()
+    if sys.platform == "darwin":
+        render_icns()
     image = Image.open(PNG)
     assert image.mode == "RGBA"
     assert image.getpixel((0, 0))[3] == 0

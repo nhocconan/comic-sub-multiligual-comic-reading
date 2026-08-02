@@ -38,6 +38,14 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
+      - name: Set up Python for icon generation
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install icon build dependency
+        run: python -m pip install --disable-pip-version-check --no-input pillow
+
       - name: Install desktop dependencies
         run: npm ci --prefix desktop
 
