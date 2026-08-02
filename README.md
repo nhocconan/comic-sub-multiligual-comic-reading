@@ -10,13 +10,14 @@ Copyright © 2026 [nhocconan](https://x.com/nhocconan).
 ## Download the latest desktop build
 
 - [macOS universal DMG](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest/download/Manga-Sub-mac-universal.dmg)
-- [Windows x64 installer](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest/download/Manga-Sub-win-x64.exe)
+- [Windows x64 installer / release page](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest)
 - [All releases and checksums](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest)
 
 The Windows installer is built in GitHub Actions and is published only when the
-repository's Windows signing certificate secrets are present. The macOS build
-is built and signed with the maintainer's local Developer ID certificate before
-its release asset is uploaded.
+repository's Windows signing certificate secrets are present; the release page
+is the source of truth until that certificate is configured. The macOS build is
+built and signed with the maintainer's local Developer ID certificate before its
+release asset is uploaded.
 
 Android and iOS builds are not public downloads yet. Contact
 [nhocconan](https://x.com/nhocconan) to be added to the Android or TestFlight

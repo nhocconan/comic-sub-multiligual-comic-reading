@@ -4,11 +4,12 @@
 
 ### Added
 
-- Download links for signed macOS and Windows desktop builds.
+- A signed macOS desktop download and a release page for the Windows desktop
+  build.
 - Non-blocking copyright attribution linking to nhocconan on desktop, browser,
   iOS setup, Android settings, and project documentation.
 - A GitHub Actions Windows release job that refuses to publish without the
-  configured signing certificate.
+  configured signing certificate; the Windows asset is pending those secrets.
 
 ### Changed
 
