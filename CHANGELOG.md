@@ -16,14 +16,12 @@
 
 ### Added
 
-- A signed macOS desktop download and a release page for the Windows desktop
-  build.
+- A signed macOS desktop download and a fail-closed Windows desktop build
+  workflow.
 - Non-blocking copyright attribution linking to nhocconan on desktop, browser,
   iOS setup, Android settings, and project documentation.
-- A GitHub Actions Windows release job that builds on `windows-latest`, verifies
-  the installer is unsigned, writes a SHA-256 sidecar, and uploads both files
-  to the GitHub release. The first public Windows build is intentionally
-  unsigned; first-launch guidance covers the SmartScreen prompt.
+- A GitHub Actions Windows release job that refused to publish without a
+  signing certificate; the public unsigned Windows build arrived in 0.2.5.
 
 ### Changed
 
