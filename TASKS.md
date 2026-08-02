@@ -1,5 +1,7 @@
 # Progress
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan)
+
 ## Research and product
 
 - [x] Inspect a real Baozimh chapter DOM, lazy loading, CORS, CSP, and navigation.

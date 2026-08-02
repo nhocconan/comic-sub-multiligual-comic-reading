@@ -1,5 +1,7 @@
 # Handoff — Online Comic Translation
 
+Copyright © 2026 [nhocconan](https://x.com/nhocconan)
+
 ## Workspace correction
 
 The initial Codex workspace was incorrectly set to
