@@ -4084,7 +4084,22 @@ private final class ReaderSettingsController: UITableViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        let copyrightButton = UIButton(type: .system)
+        copyrightButton.setTitle("Copyright © 2026 nhocconan", for: .normal)
+        copyrightButton.titleLabel?.font = .preferredFont(forTextStyle: .footnote)
+        copyrightButton.accessibilityLabel = text("Copyright by nhocconan", "Bản quyền thuộc về nhocconan")
+        copyrightButton.addTarget(self, action: #selector(openCopyright), for: .touchUpInside)
+        let copyrightFooter = UIView(frame: CGRect(x: 0, y: 0, width: tableView.bounds.width, height: 58))
+        copyrightButton.frame = copyrightFooter.bounds.insetBy(dx: 16, dy: 8)
+        copyrightButton.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        copyrightFooter.addSubview(copyrightButton)
+        tableView.tableFooterView = copyrightFooter
         applyLanguage()
+    }
+
+    @objc private func openCopyright() {
+        guard let url = URL(string: "https://x.com/nhocconan") else { return }
+        UIApplication.shared.open(url)
     }
 
     private func text(_ english: String, _ vietnamese: String) -> String {
