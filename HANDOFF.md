@@ -89,12 +89,10 @@ Still required before a linguistic “SOTA” claim:
 5. Tune cleanup masks, font choice, and typesetting only against the golden-set
    visual rubric; keep the rendered layer instantly reversible.
 
-## Windows release signing
+## Windows release
 
-The Windows workflow now builds on GitHub-hosted Windows and submits the
-installer to SignPath before uploading it. It is fail-closed: without the
-SignPath API token, organization ID, project slug, and signing policy slug it
-does not publish an unsigned file. The free SignPath Foundation route requires
-an OSI-approved project license and maintainer approval of its terms; this
-repository currently has no declared license, so the first Windows asset is
-still intentionally pending that owner decision and the SignPath application.
+The Windows workflow builds on GitHub-hosted Windows, verifies the installer is
+unsigned, writes a SHA-256 sidecar, and uploads both assets to the matching
+GitHub release. Users are given checksum and SmartScreen/Unblock guidance in
+the README and `docs/WINDOWS_SIGNING.md`. Trusted signing is optional; this
+public source repository remains buildable without it.

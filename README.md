@@ -10,15 +10,31 @@ Copyright © 2026 [nhocconan](https://x.com/nhocconan).
 ## Download the latest desktop build
 
 - [macOS universal DMG](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest/download/Manga-Sub-mac-universal.dmg)
-- [Windows x64 installer / release page](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest)
+- [Windows x64 installer](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest/download/Manga-Sub-win-x64.exe)
 - [All releases and checksums](https://github.com/nhocconan/comic-sub-multiligual-comic-reading/releases/latest)
 
 The Windows installer is built on `windows-latest` in GitHub Actions and is
-published only after a SignPath signing request returns a valid Authenticode
-signature. The workflow fails closed when SignPath is not configured, so an
-unsigned installer is never presented as a release. The macOS build is built
-and signed with the maintainer's local Developer ID certificate before its
-release asset is uploaded.
+currently published unsigned, with a SHA-256 sidecar. Windows may show a
+SmartScreen warning because there is no paid Windows certificate; the release
+page and the first-launch steps below explain how to verify and open it. The
+macOS build is built and signed with the maintainer's local Developer ID
+certificate before its release asset is uploaded.
+
+### First launch on Windows
+
+1. Download the installer and its `.sha256` file from the same release.
+2. In PowerShell, verify the checksum:
+
+   ```powershell
+   Get-FileHash .\Manga-Sub-win-x64.exe -Algorithm SHA256
+   ```
+
+   Compare the `Hash` value with the sidecar file.
+3. If Windows marks the download as blocked, right-click the installer, choose
+   **Properties**, tick **Unblock**, and choose **Apply**.
+4. Open the installer. If SmartScreen appears, choose **More info** → **Run
+   anyway** only after the checksum matches and the file came from this release
+   page.
 
 Android and iOS builds are not public downloads yet. Contact
 [nhocconan](https://x.com/nhocconan) to be added to the Android or TestFlight
@@ -93,7 +109,7 @@ npm run verify
 
 # Installable desktop package for the current host
 npm run dist:mac --prefix desktop   # macOS, signed by the local keychain
-npm run dist:win --prefix desktop   # Windows package; release signing runs in GitHub Actions
+npm run dist:win --prefix desktop   # Windows package; the public release is unsigned
 
 # Android debug build
 (cd android && ./gradlew test assembleDebug)
@@ -110,11 +126,10 @@ xcodebuild \
 
 The Windows release workflow is
 [`.github/workflows/release-desktop.yml`](.github/workflows/release-desktop.yml).
-It builds the installer on GitHub-hosted Windows, submits the artifact to
-[SignPath](https://signpath.org/), verifies the returned Authenticode signature,
-and then uploads the signed installer. Configure the four repository values
-listed in [`docs/WINDOWS_SIGNING.md`](docs/WINDOWS_SIGNING.md); the workflow
-refuses to publish when any value is missing.
+It builds the installer on GitHub-hosted Windows, verifies that it is
+unsigned, writes a SHA-256 sidecar, and uploads both files to the release. No
+certificate secret is required. A future trusted-signing integration can be
+added without changing the source build.
 
 ## Project map
 

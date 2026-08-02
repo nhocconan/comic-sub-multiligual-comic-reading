@@ -12,21 +12,18 @@ on:
         type: string
 
 permissions:
-  actions: read
   contents: write
 
 jobs:
   windows:
-    name: Windows signed installer (SignPath)
+    name: Windows desktop (unsigned)
     runs-on: windows-latest
     env:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
-      SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
-      SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-      SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-      SIGNPATH_SIGNING_POLICY_SLUG: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      CSC_LINK: ''
+      CSC_KEY_PASSWORD: ''
 
     steps:
       - name: Check out the release source
@@ -41,71 +38,28 @@ jobs:
           cache: npm
           cache-dependency-path: desktop/package-lock.json
 
-      - name: Require SignPath configuration
-        shell: pwsh
-        run: |
-          $required = @{
-            SIGNPATH_API_TOKEN = $env:SIGNPATH_API_TOKEN
-            SIGNPATH_ORGANIZATION_ID = $env:SIGNPATH_ORGANIZATION_ID
-            SIGNPATH_PROJECT_SLUG = $env:SIGNPATH_PROJECT_SLUG
-            SIGNPATH_SIGNING_POLICY_SLUG = $env:SIGNPATH_SIGNING_POLICY_SLUG
-          }
-          foreach ($entry in $required.GetEnumerator()) {
-            if ([string]::IsNullOrWhiteSpace($entry.Value)) {
-              throw "$($entry.Key) is not configured. Refusing to publish an unsigned Windows installer."
-            }
-          }
-
       - name: Install desktop dependencies
         run: npm ci --prefix desktop
 
-      - name: Build unsigned Windows installer
+      - name: Build Windows installer
         run: npm run dist:win --prefix desktop
 
-      - name: Upload unsigned installer to the signing request
-        id: upload-unsigned-installer
-        uses: actions/upload-artifact@v7
-        with:
-          path: desktop/dist/Manga-Sub-win-x64.exe
-          if-no-files-found: error
-          archive: false
-          retention-days: 1
-
-      - name: Submit installer to SignPath
-        id: sign-installer
-        uses: signpath/github-action-submit-signing-request@v2
-        with:
-          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
-          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
-          github-artifact-id: ${{ steps.upload-unsigned-installer.outputs.artifact-id }}
-          github-token: ${{ github.token }}
-          wait-for-completion: true
-          skip-decompress: true
-          output-artifact-directory: signed
-
-      - name: Verify and stage the signed installer
+      - name: Verify and hash the unsigned installer
         shell: pwsh
         run: |
-          $signed = @(Get-ChildItem -Path signed -Filter '*.exe' -File -Recurse)
-          if ($signed.Count -ne 1) {
-            throw "Expected exactly one signed installer, found $($signed.Count)."
+          $installer = Join-Path $pwd 'desktop/dist/Manga-Sub-win-x64.exe'
+          if (!(Test-Path -LiteralPath $installer -PathType Leaf)) {
+            throw "Windows installer was not produced: $installer"
           }
 
-          $destination = Join-Path $pwd 'desktop/dist/Manga-Sub-win-x64.exe'
-          Copy-Item -LiteralPath $signed[0].FullName -Destination $destination -Force
-          $signature = Get-AuthenticodeSignature -FilePath $destination
-          if ($signature.Status -ne 'Valid') {
-            throw "Windows signature is not valid: $($signature.Status)"
+          $signature = Get-AuthenticodeSignature -FilePath $installer
+          if ($signature.Status -ne 'NotSigned') {
+            throw "Expected an unsigned installer, got Authenticode status $($signature.Status)."
           }
-          if ($signature.SignerCertificate.Subject -notmatch 'SignPath') {
-            throw "Unexpected Windows signer: $($signature.SignerCertificate.Subject)"
-          }
-          Write-Host "Verified signer: $($signature.SignerCertificate.Subject)"
 
-          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $destination).Hash.ToLowerInvariant()
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installer).Hash.ToLowerInvariant()
           "$hash  Manga-Sub-win-x64.exe" | Set-Content -NoNewline -Encoding ascii 'desktop/dist/Manga-Sub-win-x64.exe.sha256'
+          Write-Host "Unsigned installer SHA-256: $hash"
 
       - name: Ensure the GitHub release exists
         shell: bash
@@ -114,7 +68,7 @@ jobs:
             gh release create "$RELEASE_TAG" --title "Manga Sub $RELEASE_TAG" --generate-notes
           fi
 
-      - name: Upload signed Windows assets
+      - name: Upload Windows assets
         shell: bash
         run: gh release upload "$RELEASE_TAG" \
           desktop/dist/Manga-Sub-win-x64.exe \

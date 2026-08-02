@@ -8,10 +8,10 @@
   build.
 - Non-blocking copyright attribution linking to nhocconan on desktop, browser,
   iOS setup, Android settings, and project documentation.
-- A GitHub Actions Windows release job that builds on `windows-latest`, submits
-  the installer to SignPath, verifies Authenticode, and refuses to publish
-  without the required SignPath configuration. The Windows asset remains
-  pending SignPath approval and repository configuration.
+- A GitHub Actions Windows release job that builds on `windows-latest`, verifies
+  the installer is unsigned, writes a SHA-256 sidecar, and uploads both files
+  to the GitHub release. The first public Windows build is intentionally
+  unsigned; first-launch guidance covers the SmartScreen prompt.
 
 ### Changed
 
