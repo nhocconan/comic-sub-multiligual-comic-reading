@@ -16,6 +16,8 @@ const overlayLayers = new Map()
 let overlayRelayoutFrame = 0
 let activeRequestIds = new Set()
 let activeRequestTotal = 0
+let viewportLock = null
+let restoringViewport = false
 
 const readerMessages = {
   en: {
@@ -228,6 +230,36 @@ function observeReading() {
   setTimeout(() => reportAnchor(true), 10_000)
 }
 
+// A long translation queue must not move the reader away from the panel the
+// user is looking at. Real comic pages often lazy-load images, resize AMP
+// hosts, or call scrollIntoView while their DOM settles. Keep the current
+// viewport fixed for an all-pages run, then release it when the queue ends.
+function restoreLockedViewport() {
+  if (!viewportLock || restoringViewport) return
+  const { x, y } = viewportLock
+  if (Math.abs(window.scrollX - x) < 1 && Math.abs(window.scrollY - y) < 1) return
+  restoringViewport = true
+  try {
+    window.scrollTo({ left: x, top: y, behavior: 'auto' })
+  } finally {
+    restoringViewport = false
+  }
+}
+
+function beginViewportLock() {
+  if (viewportLock) return
+  viewportLock = { x: window.scrollX, y: window.scrollY }
+  window.addEventListener('scroll', restoreLockedViewport, { capture: true })
+  restoreLockedViewport()
+}
+
+function endViewportLock() {
+  if (!viewportLock) return
+  window.removeEventListener('scroll', restoreLockedViewport, { capture: true })
+  viewportLock = null
+  restoringViewport = false
+}
+
 function reportAnchor(afterActiveThreshold = false) {
   if (!candidates.length) return
   if (Math.abs(window.scrollY) > 120) hasAdvanced = true
@@ -260,10 +292,15 @@ function startVisible() {
   requestBroker('visible', (visible.length ? visible : candidates.slice(activeIndex, activeIndex + 2)).filter((item) => !item.translated))
 }
 
-function startAll() { scan(); requestBroker('all', candidates.filter((item) => !item.translated)) }
+function startAll() {
+  beginViewportLock()
+  scan()
+  requestBroker('all', candidates.filter((item) => !item.translated))
+}
 
 function requestBroker(scope, items) {
   if (!items.length) {
+    if (scope === 'all') endViewportLock()
     activeRequestIds = new Set()
     activeRequestTotal = 0
     createUi().status.textContent = readerText('alreadyTranslated')
@@ -276,6 +313,7 @@ function requestBroker(scope, items) {
     })
     return
   }
+  if (scope === 'all') beginViewportLock()
   activeRequestIds = new Set(items.map((item) => item.candidateId))
   activeRequestTotal = activeRequestIds.size
   createUi().status.textContent = readerText('preparing', { count: items.length })
@@ -442,7 +480,11 @@ ipcRenderer.on('reader:command', (_event, command = {}) => {
   if (command.type === 'translate-current') startVisible()
   if (command.type === 'translate-all-now') startAll()
   if (command.type === 'translate-all' || command.type === 'open-all-confirm') openAllConfirm()
-  if (command.type === 'pause') { ipcRenderer.send('reader:status', { type: 'translate-cancel' }); createUi().status.textContent = readerText('stopping') }
+  if (command.type === 'pause') {
+    endViewportLock()
+    ipcRenderer.send('reader:status', { type: 'translate-cancel' })
+    createUi().status.textContent = readerText('stopping')
+  }
   if (command.type === 'reveal-original') toggleSource()
   if (command.type === 'reset-translations') {
     for (const item of candidates) {
@@ -478,13 +520,19 @@ ipcRenderer.on('reader:command', (_event, command = {}) => {
         queued: activeRequestIds.size,
       })
     } else {
+      endViewportLock()
       activeRequestIds = new Set()
       activeRequestTotal = 0
       ipcRenderer.send('reader:status', { type: 'job-complete', candidateIndex: activeIndex, candidateCount: candidates.length, title: document.title })
     }
   }
-  if (command.type === 'broker-failure') createUi().status.textContent = command.message || readerText('jobFailed')
+  if (command.type === 'broker-failure') {
+    if (command.candidateId) activeRequestIds.delete(command.candidateId)
+    if (!command.candidateId || activeRequestIds.size === 0) endViewportLock()
+    createUi().status.textContent = command.message || readerText('jobFailed')
+  }
   if (command.type === 'broker-cancelled') {
+    endViewportLock()
     activeRequestIds = new Set()
     activeRequestTotal = 0
     createUi().status.textContent = readerText('cancelled')
@@ -496,6 +544,7 @@ ipcRenderer.on('reader:command', (_event, command = {}) => {
 })
 
 window.addEventListener('DOMContentLoaded', () => setTimeout(scan, 120))
+window.addEventListener('beforeunload', endViewportLock)
 window.addEventListener('resize', scheduleOverlayRelayout, { passive: true })
 window.addEventListener('scroll', scheduleOverlayRelayout, { passive: true, capture: true })
 window.addEventListener('load', scheduleOverlayRelayout, true)

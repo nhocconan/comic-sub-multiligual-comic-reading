@@ -168,6 +168,10 @@ to copy or redistribute a chapter.
 - [Research notes](docs/RESEARCH.md)
 - [Desktop preview video](docs/VIDEO_PREVIEW.md)
 
+The preview is a short QA capture of the real Baozimh chapter used to verify
+the live-reader flow; it is not a bundled chapter or a substitute for visiting
+the source site.
+
 ## Credits
 
 Manga Sub is copyrighted by [nhocconan](https://x.com/nhocconan). The project

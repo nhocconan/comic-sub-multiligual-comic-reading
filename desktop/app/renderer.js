@@ -86,6 +86,9 @@ const messages = {
     thisMac: 'This Mac', appleOnDevice: 'Apple Translation · on device',
     brokerConnection: 'Broker connection', provider: 'Provider', apiBaseUrl: 'API base URL', apiKey: 'API key',
     refreshCatalog: 'Refresh model catalog', reader: 'Reader', yourLibrary: 'YOUR LIBRARY', preferences: 'PREFERENCES',
+    saveChanges: 'Save changes', settingsSaved: 'Settings saved on this Mac.', settingsSaveHint: 'Changes are saved on this Mac.',
+    settingsSaving: 'Saving…', apiKeyDescription: 'Use your saved provider key; only recognized text is sent for translation.',
+    keyConfigured: 'Configured', keyMissing: 'Not configured',
     translation: 'TRANSLATION', whereItRuns: 'WHERE IT RUNS', seriesMemory: 'SERIES MEMORY', thisSession: 'THIS SESSION',
     snapshot: 'SNAPSHOT', queue: 'QUEUE', history: 'HISTORY', idle: 'Idle', engineUpdate: 'ENGINE UPDATE',
     brokerEndpoint: 'Broker endpoint', brokerToken: 'Broker token',
@@ -160,6 +163,9 @@ const messages = {
     thisMac: 'Máy Mac này', appleOnDevice: 'Apple Translation · trên thiết bị',
     brokerConnection: 'Kết nối broker', provider: 'Nhà cung cấp', apiBaseUrl: 'API base URL', apiKey: 'API key',
     refreshCatalog: 'Làm mới catalog model', reader: 'Trình đọc', yourLibrary: 'THƯ VIỆN', preferences: 'TÙY CHỌN',
+    saveChanges: 'Lưu thay đổi', settingsSaved: 'Đã lưu cài đặt trên máy này.', settingsSaveHint: 'Thay đổi được lưu trên máy này.',
+    settingsSaving: 'Đang lưu…', apiKeyDescription: 'Dùng API key provider đã lưu; chỉ văn bản nhận diện được gửi đi để dịch.',
+    keyConfigured: 'Đã cấu hình', keyMissing: 'Chưa cấu hình',
     translation: 'BẢN DỊCH', whereItRuns: 'NƠI XỬ LÝ', seriesMemory: 'BỘ NHỚ SERIES', thisSession: 'PHIÊN NÀY',
     snapshot: 'ẢNH ĐÃ TẢI', queue: 'HÀNG ĐỢI', history: 'LỊCH SỬ', idle: 'Rảnh', engineUpdate: 'CẬP NHẬT ENGINE',
     brokerEndpoint: 'Địa chỉ broker', brokerToken: 'Token broker',
@@ -288,6 +294,8 @@ function renderState() {
   $('#byo-key-status').textContent = state.settings.byoKeyConfigured
     ? t('keyStored')
     : t('keyNotSynced')
+  $('#byo-key-badge').textContent = state.settings.byoKeyConfigured ? t('keyConfigured') : t('keyMissing')
+  $('#byo-key-badge').classList.toggle('missing', !state.settings.byoKeyConfigured)
   $('#byo-model-options').innerHTML = providerModels
     .map((model) => `<option value="${escapeHtml(model.id)}">${escapeHtml(model.name || model.id)}</option>`)
     .join('')
@@ -328,6 +336,33 @@ function syncReaderBounds() {
 async function saveSettings(patch) {
   state.settings = await window.comicSub.saveSettings(patch)
   renderState()
+}
+
+async function saveSettingsForm() {
+  const button = $('#save-settings')
+  button.disabled = true
+  $('#settings-save-status').textContent = t('settingsSaving')
+  try {
+    await saveSettings({
+      uiLanguage: $('#ui-language').value,
+      sourceLanguage: $('#source-language').value,
+      targetLanguage: $('#target-language').value,
+      profile: $('#profile').value,
+      translationCacheLimit: Number($('#translation-cache-limit').value),
+      route: $('#default-route').value,
+      brokerEndpoint: $('#broker-endpoint').value,
+      byoProvider: $('#byo-provider').value,
+      byoBaseUrl: $('#byo-base-url').value,
+      byoModel: $('#byo-model').value,
+    })
+    $('#settings-save-status').textContent = t('settingsSaved')
+    toast(t('settingsSaved'))
+  } catch (error) {
+    $('#settings-save-status').textContent = error.message || t('failed')
+    toast(error.message || t('failed'))
+  } finally {
+    button.disabled = false
+  }
 }
 
 function ensureRoute(command) {
@@ -440,6 +475,7 @@ function bind() {
   $('#private-toggle').addEventListener('click', async () => { state = await window.comicSub.setPrivate(!state.privateSession); renderState(); toast(state.privateSession ? t('privateOn') : t('privateOff')) })
   $('#lookup-accept').addEventListener('click', async () => { state.glossaryConsent = await window.comicSub.setGlossaryConsent('allowed'); $('#continuity-card').hidden = true; toast(t('researchAllowed')) })
   $('#lookup-decline').addEventListener('click', async () => { state.glossaryConsent = await window.comicSub.setGlossaryConsent('local-only'); $('#continuity-card').hidden = true; toast(t('continuityLocal')) })
+  $('#save-settings').addEventListener('click', saveSettingsForm)
   $('#ui-language').addEventListener('change', (event) => saveSettings({ uiLanguage: event.target.value }))
   $('#target-language').addEventListener('change', (event) => saveSettings({ targetLanguage: event.target.value }))
   $('#source-language').addEventListener('change', (event) => saveSettings({ sourceLanguage: event.target.value }))

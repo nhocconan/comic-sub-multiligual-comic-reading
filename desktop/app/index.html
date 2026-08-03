@@ -89,9 +89,15 @@
       </section>
 
       <section id="settings-workspace" class="panel-workspace settings-workspace" hidden>
-        <div class="panel-heading"><p class="eyebrow" data-i18n="preferences">PREFERENCES</p><h1 data-i18n="preferencesTitle">Quality, language, and privacy.</h1><p data-i18n="preferencesDetail">Model and token controls only appear in advanced settings.</p></div>
+        <div class="settings-hero">
+          <div class="panel-heading"><p class="eyebrow" data-i18n="preferences">PREFERENCES</p><h1 data-i18n="preferencesTitle">Quality, language, and privacy.</h1><p data-i18n="preferencesDetail">Model and token controls only appear in advanced settings.</p></div>
+          <div class="settings-save-panel">
+            <span id="settings-save-status" class="settings-save-status" data-i18n="settingsSaveHint">Changes are saved on this Mac.</span>
+            <button id="save-settings" class="settings-save-button" type="button" data-i18n="saveChanges">Save changes</button>
+          </div>
+        </div>
         <div class="settings-grid">
-          <section class="settings-section"><h2 data-i18n="reader">Reader</h2>
+          <section class="settings-section settings-card"><h2 data-i18n="reader">Reader</h2>
             <label><span data-i18n="appLanguage">App language</span><select id="ui-language"><option value="en">English</option><option value="vi">Tiếng Việt</option></select></label>
             <label><span data-i18n="sourceLanguage">Source language</span><select id="source-language"><option value="auto" data-i18n="detectAutomatically">Detect automatically</option><option value="zh-Hans" data-i18n="chineseSimplified">Chinese (Simplified)</option><option value="zh-Hant" data-i18n="chineseTraditional">Chinese (Traditional)</option><option value="ja" data-i18n="japanese">Japanese</option><option value="ko" data-i18n="korean">Korean</option><option value="en" data-i18n="english">English</option></select></label>
             <label><span data-i18n="targetLanguage">Target language</span><select id="target-language"><option value="vi-VN" data-i18n="vietnamese">Vietnamese</option><option value="en-US" data-i18n="english">English</option><option value="fr-FR" data-i18n="french">French</option><option value="es-ES" data-i18n="spanish">Spanish</option><option value="de-DE" data-i18n="german">German</option><option value="pt-BR" data-i18n="portuguese">Portuguese</option><option value="id-ID" data-i18n="indonesian">Indonesian</option><option value="ja-JP" data-i18n="japanese">Japanese</option><option value="ko-KR" data-i18n="korean">Korean</option><option value="zh-CN" data-i18n="chineseSimplified">Chinese (Simplified)</option><option value="zh-TW" data-i18n="chineseTraditional">Chinese (Traditional)</option></select></label>
@@ -99,17 +105,17 @@
             <label><span data-i18n="savedTranslations">Saved translated chapters</span><select id="translation-cache-limit"><option value="0" data-i18n="saveNone">None</option><option value="5" data-i18n="saveFive">Latest 5</option><option value="10" data-i18n="saveTen">Latest 10</option></select></label>
             <p class="hint" data-i18n="savedTranslationsHint">Only translated text and OCR positions are saved, never comic images. Storage is capped at 2 MiB.</p>
           </section>
-          <section class="settings-section"><h2 data-i18n="translationLocation">Translation location</h2>
+          <section class="settings-section settings-card"><h2 data-i18n="translationLocation">Translation location</h2>
             <label><span data-i18n="defaultRoute">Default route</span><select id="default-route"><option value="ask" data-i18n="askEachTime">Ask each time</option><option value="local" data-i18n="onThisMac">On this Mac</option><option value="managed">Manga Sub Cloud</option><option value="byo" data-i18n="yourApiKey">Your API key</option></select></label>
             <p class="hint" data-i18n="routeHint">Automatic mode only uses routes you approved. The app never silently switches to cloud.</p>
           </section>
-          <section class="settings-section"><h2 data-i18n="brokerConnection">Broker connection</h2>
+          <section class="settings-section settings-card"><h2 data-i18n="brokerConnection">Broker connection</h2>
             <label><span data-i18n="brokerEndpoint">Broker endpoint</span><input id="broker-endpoint" placeholder="http://127.0.0.1:4100" /></label>
             <label><span data-i18n="brokerToken">Broker token</span> <input id="provider-token" type="password" placeholder="Paste a token to update it" data-i18n-placeholder="tokenPlaceholder" /></label>
             <button id="save-token" class="text-action" data-i18n="saveToken">Save token to credential store</button>
             <p class="hint" id="token-status">Tokens are not synced between devices.</p>
           </section>
-          <section class="settings-section advanced"><h2 data-i18n="yourApiKey">Your API key</h2>
+          <section class="settings-section settings-card advanced"><div class="settings-section-heading"><div><h2 data-i18n="yourApiKey">Your API key</h2><p class="section-description" data-i18n="apiKeyDescription">Use your saved provider key; only recognized text is sent for translation.</p></div><span id="byo-key-badge" class="credential-badge">—</span></div>
             <label><span data-i18n="provider">Provider</span><select id="byo-provider"><option value="gemini">Google Gemini</option><option value="openai">OpenAI</option><option value="anthropic">Anthropic Claude</option><option value="openai-compatible">OpenAI-compatible</option></select></label>
             <label id="byo-base-row"><span data-i18n="apiBaseUrl">API base URL</span><input id="byo-base-url" type="url" placeholder="https://api.deepseek.com/v1" /></label>
             <label><span data-i18n="apiKey">API key</span><input id="byo-api-key" type="password" autocomplete="off" placeholder="Paste a key to update it" data-i18n-placeholder="keyPlaceholder" /></label>
@@ -120,7 +126,7 @@
             <button id="refresh-models" class="text-action" data-i18n="refreshCatalog">Refresh model catalog</button>
             <p class="hint" id="byo-model-status" data-i18n="catalogHint">The catalog comes directly from the provider; Manga Sub does not pin a model list.</p>
           </section>
-          <section class="settings-section glossary-editor"><h2 data-i18n="seriesNames">Names used in this series</h2>
+          <section class="settings-section settings-card glossary-editor"><h2 data-i18n="seriesNames">Names used in this series</h2>
             <div id="glossary-list" class="glossary-list"></div>
             <form id="add-term-form"><input id="term-input" placeholder="Original name = Preferred name" data-i18n-placeholder="termPlaceholder" /><button data-i18n="add">Add</button></form>
           </section>

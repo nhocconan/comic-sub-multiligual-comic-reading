@@ -45,6 +45,12 @@ test('desktop exposes a bounded translated chapter cache setting', () => {
   assert.match(index, /id="translation-cache-limit"/)
   assert.match(renderer, /translationCacheLimit: Number\(event\.target\.value\)/)
   assert.match(renderer, /Storage is capped at 2 MiB/)
+  assert.match(index, /id="save-settings"/)
+  assert.match(index, /data-i18n="saveChanges"/)
+  assert.match(renderer, /async function saveSettingsForm\(\)/)
+  assert.match(index, /id="byo-key-badge"/)
+  assert.match(styles, /\.settings-save-button[\s\S]*background: var\(--acid\)/)
+  assert.match(styles, /\.settings-section\.advanced[\s\S]*linear-gradient/)
 })
 
 test('desktop keeps Library heading readable and attribution outside the reader', () => {
