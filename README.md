@@ -166,11 +166,6 @@ to copy or redistribute a chapter.
 - [iOS/Safari build and TestFlight guide](docs/IOS_SAFARI.md)
 - [Verification record](docs/VERIFICATION.md)
 - [Research notes](docs/RESEARCH.md)
-- [Desktop preview video](docs/VIDEO_PREVIEW.md)
-
-The preview is a short QA capture of the real Baozimh chapter used to verify
-the live-reader flow; it is not a bundled chapter or a substitute for visiting
-the source site.
 
 ## Credits
 

@@ -17,7 +17,7 @@ Build: macOS universal, Developer ID Application: Tien Le (897JP9X77U)
 - OpenAI-compatible `deepseek-v4-pro` translated all 9 loaded images; the reader reached **Translated 9/9** with Vietnamese overlays.
 - `window.scrollY` stayed at `0` through confirmation, OCR, translation, and attachment; the original reader viewport did not jump.
 - Settings was visually checked with the card layout, visible **Save changes** action, and API-key status badge.
-- The preview video in `docs/manga-sub-preview.mp4` was captured from this real flow and includes AAC narration.
+- The preview video in `docs/manga-sub-preview.mp4` is a HyperFrames composition built from the supplied `docs/Screen Recording 2026-08-03 at 10.10.07.mov`; it includes English AAC narration and target-neutral callouts.
 
 ## Automated checks
 
