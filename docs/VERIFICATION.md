@@ -7,6 +7,18 @@ Platform: Apple M1 Pro, macOS arm64
 Extension: Manga Sub 0.1.0
 Companion contract: Koharu 0.61.2
 
+## Current desktop QA
+
+Date: 2026-08-03  
+Build: macOS universal, Developer ID Application: Tien Le (897JP9X77U)
+
+- Opened the real [Baozimh chapter 0_815](https://www.baozimh.com/comic/chapter/yaoshenji-taxuedongman/0_815.html) in the packaged app.
+- Settings showed the saved API credential as **Configured**, route **Your API key**, and the provider catalog was refreshed without exposing the key.
+- OpenAI-compatible `deepseek-v4-pro` translated all 9 loaded images; the reader reached **Translated 9/9** with Vietnamese overlays.
+- `window.scrollY` stayed at `0` through confirmation, OCR, translation, and attachment; the original reader viewport did not jump.
+- Settings was visually checked with the card layout, visible **Save changes** action, and API-key status badge.
+- The preview video in `docs/manga-sub-preview.mp4` was captured from this real flow and includes AAC narration.
+
 ## Automated checks
 
 | Check | Result |
@@ -127,9 +139,9 @@ future real run does not need to fetch them again.
 
 ## Not yet verified
 
-- Real cloud-provider Chinese-to-Vietnamese output: no provider API key was
-  available. The full visual pipeline was verified with deterministic local
-  Vietnamese strings, not used as a linguistic-quality claim.
+- Broad linguistic quality across many chapters and providers still needs a
+  separate benchmark; the current QA covers one real chapter and one saved
+  provider key, not a general quality claim.
 - The 30-page blind translation-quality bake-off required for a public quality
   comparison.
 - Full-reload/same-origin automatic activation on every next chapter.
