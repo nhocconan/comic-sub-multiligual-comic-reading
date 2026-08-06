@@ -2,6 +2,7 @@
   "name": "manga-sub-translator",
   "version": "0.2.5",
   "private": true,
+  "license": "MIT",
   "description": "Cross-platform embedded comic reader with local OCR and configurable translation routes.",
   "type": "module",
   "scripts": {

@@ -152,8 +152,9 @@ page images are uploaded there over HTTPS. A cloud provider receives OCR text,
 not the comic image. Check the source site's terms and copyright rules before
 using any translation route.
 
-The included sample is licensed for interface testing only. It is not a grant
-to copy or redistribute a chapter.
+The included sample pages are original artwork drawn for interface testing and
+ship under this repository's own license. They are not a real chapter, and
+nothing here grants a right to copy or redistribute a published comic.
 
 ## Documentation
 
@@ -167,8 +168,15 @@ to copy or redistribute a chapter.
 - [Verification record](docs/VERIFICATION.md)
 - [Research notes](docs/RESEARCH.md)
 
+## License
+
+Manga Sub is released under the [MIT License](LICENSE), copyright © 2026
+[nhocconan](https://x.com/nhocconan). The license covers this repository's own
+source code, documentation, and sample artwork. It does not grant any right to
+copy or redistribute comics you read with the app.
+
 ## Credits
 
-Manga Sub is copyrighted by [nhocconan](https://x.com/nhocconan). The project
-uses Koharu, Playwright, ML Kit, Electron, and the other open-source components
-listed in the linked documentation. Their licenses remain with their authors.
+The project uses Koharu, Playwright, ML Kit, Electron, and the other
+open-source components listed in the linked documentation. Their licenses
+remain with their authors.
